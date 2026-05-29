@@ -8,6 +8,86 @@ import { Plus, FileText, Trash2, Save, Download, ChevronLeft, Sun, CloudRain, Sn
 const GREEN = "#5BA83A";
 const DARKGREEN = "#3E7A28";
 const INK = "#1f2417";
+
+// ===== Mitarbeiter-Datenbank =====
+// Format: "Nachname Vorname" + Tätigkeit
+const MITARBEITER = [
+  { name: "Alletsgruber Mathias", taetigkeit: "Lehrling 1. Lehrjahr" },
+  { name: "Aufhammer Robert",     taetigkeit: "Facharbeiter" },
+  { name: "Bachmann Philip",      taetigkeit: "Abbund" },
+  { name: "Baumgartner Christoph",taetigkeit: "Lehrling 2. Lehrjahr" },
+  { name: "Baumgartner Elias",    taetigkeit: "Lehrling 2. Lehrjahr" },
+  { name: "Danner Mathias",       taetigkeit: "Lehrling 3. Lehrjahr" },
+  { name: "Eberwein Martin",      taetigkeit: "Vorarbeiter" },
+  { name: "Eberwein Christian",   taetigkeit: "LKW klein + Vorarbeiter" },
+  { name: "Eder Maximilian",      taetigkeit: "Lehrling 3. Lehrjahr" },
+  { name: "Eder Thomas",          taetigkeit: "Vorarbeiter" },
+  { name: "Fahringer Michael",    taetigkeit: "Meister + Tech. Zeichner" },
+  { name: "Grones Stefan",        taetigkeit: "Technischer Zeichner + Bauleiter" },
+  { name: "Gruber Johannes",      taetigkeit: "Polier" },
+  { name: "Gruber Josef",         taetigkeit: "Vorarbeiter" },
+  { name: "Heger Sebastian",      taetigkeit: "Facharbeiter" },
+  { name: "Heger Thomas",         taetigkeit: "Technischer Zeichner + Bauleiter" },
+  { name: "Horngacher Philipp",   taetigkeit: "Vorarbeiter" },
+  { name: "Huber Sander",         taetigkeit: "Lehrling 3. Lehrjahr" },
+  { name: "Kania Manuel",         taetigkeit: "Facharbeiter" },
+  { name: "Koller Markus",        taetigkeit: "Facharbeiter" },
+  { name: "Koller Lukas",         taetigkeit: "Vorarbeiter" },
+  { name: "Kronbichler Josef",    taetigkeit: "Facharbeiter" },
+  { name: "Kronbichler Thomas",   taetigkeit: "Vorarbeiter" },
+  { name: "Löffler Peter",        taetigkeit: "Meister + Tech. Zeichner" },
+  { name: "Miller Bastian",       taetigkeit: "Facharbeiter" },
+  { name: "Mittermaier Christoph",taetigkeit: "Facharbeiter / Lehrling" },
+  { name: "Müller Jürgen",        taetigkeit: "Lehrling 2. Lehrjahr" },
+  { name: "Neumann Tim",          taetigkeit: "Meister + Tech. Zeichner" },
+  { name: "Osterauer Markus",     taetigkeit: "LKW groß + Vorarbeiter" },
+  { name: "Pichler Markus",       taetigkeit: "Vorarbeiter" },
+  { name: "Polin Reinhard",       taetigkeit: "Lagermitarbeiter" },
+  { name: "Schmid Helmut",        taetigkeit: "Vorarbeiter" },
+  { name: "Schächl Georg",        taetigkeit: "Facharbeiter" },
+  { name: "Schreder Sebastian",   taetigkeit: "Facharbeiter" },
+  { name: "Schwaiger Andreas",    taetigkeit: "Lagermitarbeiter" },
+  { name: "Schwaiger Helmut",     taetigkeit: "Vorarbeiter" },
+  { name: "Schwaiger Thomas",     taetigkeit: "Vorarbeiter" },
+  { name: "Schwaighofer Andreas", taetigkeit: "Geschäftsführung" },
+  { name: "Schwaighofer Isabella",taetigkeit: "Büromitarbeiterin" },
+  { name: "Schwaighofer Julia",   taetigkeit: "Büromitarbeiterin" },
+  { name: "Schwaighofer Sandra",  taetigkeit: "Büromitarbeiterin" },
+  { name: "Sieberer Johannes",    taetigkeit: "Lehrling 3. Lehrjahr" },
+  { name: "Sedlak Justin",        taetigkeit: "Facharbeiter" },
+  { name: "Steiner Benjamin",     taetigkeit: "Vorarbeiter" },
+].sort((a, b) => a.name.localeCompare(b.name, "de"));
+
+const isLehrling     = (t) => /Lehrling/i.test(t);
+const isFacharbeiter = (t) => /Facharbeiter/i.test(t) && !isLehrling(t);
+const isVorarbeiter  = (t) => /Vorarbeiter|Polier|Meister/i.test(t);
+const isBuro         = (t) => /Büromitarbeiter|Geschäftsführung/i.test(t);
+const isTechZeichner = (t) => /Tech(\.|nischer)?\s*Zeichner|Bauleiter/i.test(t);
+const isLager        = (t) => /Lagermitarbeiter/i.test(t);
+
+// Bauführer-Auswahl: alle außer Lehrlinge, Büro, Tech. Zeichner/Bauleiter, Lager
+const BAUFUEHRER_LIST = MITARBEITER
+  .filter(m => !isLehrling(m.taetigkeit) && !isBuro(m.taetigkeit) && !isTechZeichner(m.taetigkeit) && !isLager(m.taetigkeit))
+  .map(m => m.name);
+
+// Vorarbeiter-Feld: Vorarbeiter + Facharbeiter + Meister (ohne Lehrlinge)
+const VORARBEITER_LIST = MITARBEITER
+  .filter(m => (isVorarbeiter(m.taetigkeit) || isFacharbeiter(m.taetigkeit)) && !isLehrling(m.taetigkeit))
+  .map(m => m.name);
+
+// Facharbeiter-Feld: nur Facharbeiter (ohne "Vorarbeiter" und ohne Lehrlinge)
+const FACHARBEITER_LIST = MITARBEITER
+  .filter(m => isFacharbeiter(m.taetigkeit) && !isVorarbeiter(m.taetigkeit) && !isLehrling(m.taetigkeit))
+  .map(m => m.name);
+
+// Lehrlings-Feld: alle Lehrlinge
+const LEHRLINGE_LIST = MITARBEITER
+  .filter(m => isLehrling(m.taetigkeit))
+  .map(m => m.name);
+
+// LKW-Optionen (feste Auswahl)
+const LKW_OPTIONS = ["LKW 31 Tonnen", "LKW 24 Tonnen"];
+
 const LOGO = "data:image/jpeg;base64,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";
 
 const emptyReport = () => ({
@@ -20,7 +100,6 @@ const emptyReport = () => ({
   arbeiter: {
     vorarbeiter: { n: "", std: "", namen: "" },
     facharbeiter: { n: "", std: "", namen: "" },
-    hilfsarbeiter: { n: "", std: "", namen: "" },
     lehrling: { n: "", std: "", namen: "" },
     kraftfahrer: { n: "", std: "", namen: "" },
   },
@@ -41,11 +120,17 @@ function parseNum(v) {
 }
 // Gesamtstunden = Summe (Anzahl × Stunden) je Kategorie.
 // Wenn keine Anzahl angegeben ist, zählt die Stundenzahl einfach 1×.
+function countNamen(s) {
+  return (s || "").split(",").map(x => x.trim()).filter(Boolean).length;
+}
 function totalHours(arbeiter) {
-  return Object.values(arbeiter).reduce((sum, a) => {
+  return Object.entries(arbeiter).reduce((sum, [key, a]) => {
+    // LKW-Stunden zählen nicht zur Arbeitsleistung ohne Gerät
+    if (key === "kraftfahrer") return sum;
     const std = parseNum(a.std);
     if (!std) return sum;
-    const n = parseNum(a.n);
+    // Anzahl wird aus den Namen ermittelt; Fallback auf altes Feld a.n
+    const n = countNamen(a.namen) || parseNum(a.n);
     return sum + std * (n > 0 ? n : 1);
   }, 0);
 }
@@ -61,34 +146,6 @@ function Logo({ small }) {
 }
 
 // ---------- persistent storage helpers ----------
-
-// localStorage-Wrapper, der dieselbe API wie window.storage (Artefakt) anbietet.
-// Ermöglicht Offline-Speicherung direkt im Browser des Tablets.
-if (typeof window !== "undefined" && !window.storage) {
-  window.storage = {
-    async get(key) {
-      const v = window.localStorage.getItem(key);
-      return v === null ? null : { key, value: v };
-    },
-    async set(key, value) {
-      window.localStorage.setItem(key, value);
-      return { key, value };
-    },
-    async delete(key) {
-      window.localStorage.removeItem(key);
-      return { key, deleted: true };
-    },
-    async list(prefix = "") {
-      const keys = [];
-      for (let i = 0; i < window.localStorage.length; i++) {
-        const k = window.localStorage.key(i);
-        if (k && k.startsWith(prefix)) keys.push(k);
-      }
-      return { keys, prefix };
-    },
-  };
-}
-
 const INDEX_KEY = "btb:index";
 
 async function loadIndex() {
@@ -388,6 +445,128 @@ function PhotoUpload({ fotos, onChange }) {
 }
 
 
+// Mehrfach-Auswahl als „Pills" – Mitarbeiter werden angetippt und an-/abgewählt.
+// Liefert einen kommagetrennten String an onChange (kompatibel mit Datenmodell).
+function MultiSelectPills({ value, onChange, options, label }) {
+  const [open, setOpen] = useState(false);
+  const selected = (value || "").split(",").map(s => s.trim()).filter(Boolean);
+  const isSelected = (name) => selected.includes(name);
+  const toggle = (name) => {
+    const next = isSelected(name) ? selected.filter(n => n !== name) : [...selected, name];
+    next.sort((a, b) => a.localeCompare(b, "de"));
+    onChange(next.join(", "));
+  };
+  const clear = () => onChange("");
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8, minHeight: 30 }}>
+        {selected.length === 0 ? (
+          <span style={{ color: "#9a9b89", fontSize: 14, fontStyle: "italic", padding: "6px 0" }}>
+            Noch niemand ausgewählt
+          </span>
+        ) : (
+          selected.map(n => (
+            <span key={n} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px 6px 12px", borderRadius: 999, background: "#eef7e6", border: "1px solid " + GREEN, color: DARKGREEN, fontSize: 14, fontWeight: 600 }}>
+              {n}
+              <button onClick={() => toggle(n)} title="Entfernen"
+                style={{ border: "none", background: "rgba(0,0,0,.08)", color: DARKGREEN, borderRadius: 999, width: 20, height: 20, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
+                <X size={12} />
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={() => setOpen(o => !o)}
+          style={{ ...btnGhost, borderColor: GREEN, color: DARKGREEN }}>
+          <Plus size={18} /> {label || "Auswählen"}
+        </button>
+        {selected.length > 0 && (
+          <button onClick={clear} style={{ ...btnGhost, color: "#888" }}>
+            Alle entfernen
+          </button>
+        )}
+      </div>
+      {open && (
+        <div style={{ marginTop: 10, border: "2px solid #c9cabb", borderRadius: 12, background: "#fff", maxHeight: 280, overflowY: "auto" }}>
+          {options.length === 0 ? (
+            <div style={{ padding: 14, color: "#9a9b89", fontSize: 14 }}>Keine Einträge verfügbar.</div>
+          ) : (
+            options.map((opt, i) => {
+              const sel = isSelected(opt);
+              return (
+                <button key={opt} onClick={() => toggle(opt)}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+                    textAlign: "left", padding: "12px 14px", border: "none",
+                    background: sel ? "#eef7e6" : "#fff", cursor: "pointer", fontSize: 15,
+                    borderTop: i === 0 ? "none" : "1px solid #f0f1e6",
+                    color: INK, fontFamily: "inherit", fontWeight: sel ? 700 : 500,
+                  }}>
+                  <span>{opt}</span>
+                  {sel ? <Check size={18} color={GREEN} /> : <span style={{ width: 18 }} />}
+                </button>
+              );
+            })
+          )}
+          <div style={{ padding: 8, borderTop: "1px solid #e3e3d4", display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={() => setOpen(false)} style={{ ...btnGhost, padding: "8px 14px" }}>
+              Schließen
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Einfache Einzel-Auswahl als Dropdown (für Bauführer, LKW)
+function NativeSelect({ value, onChange, options, placeholder }) {
+  return (
+    <select value={value || ""} onChange={e => onChange(e.target.value)}
+      style={{ ...inputStyle, appearance: "auto", WebkitAppearance: "menulist", paddingRight: 14 }}>
+      <option value="">{placeholder || "Bitte wählen…"}</option>
+      {options.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+
+// Temperatur-Schieberegler von -20 bis +40 °C mit großer Anzeige
+function TempSlider({ value, onChange, min = -20, max = 40 }) {
+  // value ist String ("+4", "-5", "0"). Parse zu Zahl, default 10 °C wenn leer.
+  const parsed = parseInt((value || "").replace("+", ""), 10);
+  const num = isNaN(parsed) ? 10 : parsed;
+  const display = num > 0 ? "+" + num : String(num);
+  // Farbverlauf je nach Temperatur (blau → rot)
+  const t = (num - min) / (max - min);
+  const hue = Math.round(220 - t * 220); // 220° (blau) → 0° (rot)
+  const color = `hsl(${hue}, 70%, 45%)`;
+  const handleChange = (raw) => {
+    const n = parseInt(raw, 10);
+    onChange(n > 0 ? "+" + n : String(n));
+  };
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 4, marginBottom: 10 }}>
+        <span style={{ fontSize: 44, fontWeight: 800, color, lineHeight: 1, fontFamily: "Oswald, sans-serif" }}>{display}</span>
+        <span style={{ fontSize: 22, fontWeight: 700, color: "#6b6c5c" }}>°C</span>
+      </div>
+      <input type="range" min={min} max={max} step={1} value={num}
+        onChange={(e) => handleChange(e.target.value)}
+        style={{
+          width: "100%", height: 32, accentColor: color, cursor: "pointer",
+          WebkitAppearance: "none", appearance: "none", background: "transparent",
+        }} />
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#9a9b89", marginTop: 2, padding: "0 4px" }}>
+        <span>{min} °C</span>
+        <span>0 °C</span>
+        <span>+{max} °C</span>
+      </div>
+    </div>
+  );
+}
+
+
 // Autocomplete für Bauvorhaben: zeigt passende bereits angelegte Baustellen
 function BauvorhabenAutocomplete({ value, onChange, suggestions }) {
   const [open, setOpen] = useState(false);
@@ -450,8 +629,10 @@ function Editor({ report, onChange, onBack, onSave, onExport, existingFolders })
   const toggleW = (k) => set({ witterung: { ...r.witterung, [k]: !r.witterung[k] } });
 
   const arbRows = [
-    ["vorarbeiter", "Vorarbeiter"], ["facharbeiter", "Facharbeiter"], ["hilfsarbeiter", "Hilfsarbeiter"],
-    ["lehrling", "Lehrling"], ["kraftfahrer", "Kraftfahrer inkl. LKW"],
+    ["vorarbeiter",  "Vorarbeiter",       VORARBEITER_LIST,  "multi"],
+    ["facharbeiter", "Facharbeiter",      FACHARBEITER_LIST, "multi"],
+    ["lehrling",     "Lehrlinge",         LEHRLINGE_LIST,    "multi"],
+    ["kraftfahrer",  "LKW mit Ladekran",  LKW_OPTIONS,       "single"],
   ];
 
   return (
@@ -479,10 +660,16 @@ function Editor({ report, onChange, onBack, onSave, onExport, existingFolders })
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           <Field label="Datum"><TextInput type="date" value={r.datum} onChange={e => set({ datum: e.target.value })} /></Field>
-          <Field label="Temperatur (°C)"><TextInput type="text" inputMode="numeric" value={r.temperatur} onChange={e => set({ temperatur: e.target.value })} placeholder="z. B. 4" /></Field>
+          <Field label="Temperatur">
+            <TempSlider value={r.temperatur} onChange={(v) => set({ temperatur: v })} />
+          </Field>
         </div>
         <Field label="Bauvorhaben"><BauvorhabenAutocomplete value={r.bauvorhaben} onChange={(v) => set({ bauvorhaben: v })} suggestions={existingFolders} /></Field>
-        <Field label="Verantwortlicher Bauführer"><TextInput value={r.bauführer} onChange={e => set({ bauführer: e.target.value })} placeholder="Name" /></Field>
+        <Field label="Verantwortlicher Bauführer">
+          <NativeSelect value={r.bauführer} onChange={(v) => set({ bauführer: v })}
+            options={BAUFUEHRER_LIST}
+            placeholder="Bauführer wählen…" />
+        </Field>
 
         <Field label="Witterung">
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -495,42 +682,49 @@ function Editor({ report, onChange, onBack, onSave, onExport, existingFolders })
         </Field>
 
         <Field label="Anzahl der beschäftigten Arbeiter">
-          <div style={{ border: "2px solid #c9cabb", borderRadius: 14, overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", background: "#eef0e6", fontWeight: 700, fontSize: 13, color: DARKGREEN }}>
-              <div style={{ padding: "10px 14px" }}>Kategorie</div>
-              <div style={{ padding: "10px 14px", textAlign: "center" }}>Anzahl</div>
-              <div style={{ padding: "10px 14px", textAlign: "center" }}>Stunden</div>
-            </div>
-            {arbRows.map(([key, lbl], i) => (
-              <div key={key} style={{ borderTop: "1px solid #e3e3d4", background: i % 2 ? "#fbfbf4" : "#fff" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", alignItems: "center" }}>
-                  <div style={{ padding: "8px 14px", fontWeight: 600, fontSize: 15 }}>{lbl}</div>
-                  <div style={{ padding: 8 }}>
-                    <input inputMode="numeric" value={r.arbeiter[key].n} onChange={e => setArb(key, "n", e.target.value)}
-                      style={{ ...inputStyle, padding: "10px", textAlign: "center", fontSize: 16 }} />
+          <div style={{ display: "grid", gap: 14 }}>
+            {arbRows.map(([key, lbl, opts, mode]) => {
+              const a = r.arbeiter[key] || { n: "", std: "", namen: "" };
+              const selectedNames = (a.namen || "").split(",").map(s => s.trim()).filter(Boolean);
+              const autoCount = selectedNames.length;
+              return (
+                <div key={key} style={{ border: "2px solid #c9cabb", borderRadius: 14, background: "#fff", padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: DARKGREEN }}>{lbl}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 14, color: "#6b6c5c" }}>
+                      <span>Anzahl: <strong style={{ color: INK, fontSize: 16 }}>{autoCount || "—"}</strong></span>
+                    </div>
                   </div>
-                  <div style={{ padding: 8 }}>
-                    <input inputMode="decimal" value={r.arbeiter[key].std} onChange={e => setArb(key, "std", e.target.value)}
-                      style={{ ...inputStyle, padding: "10px", textAlign: "center", fontSize: 16 }} />
+                  {mode === "multi" ? (
+                    <MultiSelectPills
+                      value={a.namen}
+                      onChange={(v) => { setArb(key, "namen", v); }}
+                      options={opts}
+                      label={"Aus Liste wählen"}
+                    />
+                  ) : (
+                    <NativeSelect
+                      value={a.namen}
+                      onChange={(v) => setArb(key, "namen", v)}
+                      options={opts}
+                      placeholder="LKW wählen…"
+                    />
+                  )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
+                    <label style={{ fontSize: 14, color: "#6b6c5c", fontWeight: 600 }}>Stunden:</label>
+                    <input inputMode="decimal" value={a.std} onChange={e => setArb(key, "std", e.target.value)}
+                      style={{ ...inputStyle, padding: "10px 12px", textAlign: "center", fontSize: 16, width: 100, flex: "0 0 auto" }} />
                   </div>
                 </div>
-                <div style={{ padding: "0 8px 10px" }}>
-                  <input value={r.arbeiter[key].namen || ""} onChange={e => setArb(key, "namen", e.target.value)}
-                    placeholder="Namen (mit Komma trennen)…"
-                    style={{ ...inputStyle, padding: "10px 12px", fontSize: 15 }} />
-                </div>
-              </div>
-            ))}
-            <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", borderTop: "2px solid #c9cabb", background: "#eef7e6", alignItems: "center" }}>
-              <div style={{ padding: "12px 14px", fontWeight: 800, fontSize: 15, color: DARKGREEN }}>Gesamt</div>
-              <div style={{ padding: "12px 8px" }} />
-              <div style={{ padding: "12px 8px", textAlign: "center", fontWeight: 800, fontSize: 18, color: DARKGREEN }}>
-                {fmtHours(totalHours(r.arbeiter))} Std.
-              </div>
+              );
+            })}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderRadius: 14, background: "#eef7e6", padding: "14px 18px", border: "2px solid " + GREEN }}>
+              <div style={{ fontWeight: 800, fontSize: 16, color: DARKGREEN }}>Arbeitsleistung ohne Gerät</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: DARKGREEN }}>{fmtHours(totalHours(r.arbeiter))} Std.</div>
             </div>
           </div>
-          <p style={{ fontSize: 12, color: "#9a9b89", margin: "6px 2px 0" }}>
-            Berechnet als Anzahl × Stunden je Kategorie (z. B. 2 Mann × 2 Std = 4 Std).
+          <p style={{ fontSize: 12, color: "#9a9b89", margin: "8px 2px 0" }}>
+            Anzahl wird aus den ausgewählten Namen ermittelt. Stundensumme = Anzahl × Stunden je Kategorie.
           </p>
         </Field>
 
@@ -744,14 +938,15 @@ async function exportPDF(r) {
   const rows = [
     ["vorarbeiter", "Vorarbeiter"],
     ["facharbeiter", "Facharbeiter"],
-    ["hilfsarbeiter", "Hilfsarbeiter"],
-    ["lehrling", "Lehrling"],
-    ["kraftfahrer", "Kraftfahrer inkl. LKW"],
+    ["lehrling", "Lehrlinge"],
+    ["kraftfahrer", "LKW mit Ladekran"],
   ];
   doc.setFont("helvetica", "normal"); doc.setFontSize(10);
   rows.forEach(([k, lbl], i) => {
     const a = r.arbeiter[k] || {};
     const namen = (a.namen || "").trim();
+    const anzAuto = namen ? namen.split(",").map(s => s.trim()).filter(Boolean).length : 0;
+    const anzText = anzAuto > 0 ? String(anzAuto) : (a.n || "—");
     const nameLines = doc.splitTextToSize(namen || "—", colNamen - 12);
     const rowH = Math.max(20, nameLines.length * 12 + 8);
     if (y + rowH > H - 60) { doc.addPage(); y = 50; }
@@ -768,7 +963,7 @@ async function exportPDF(r) {
     doc.setTextColor(40, 40, 30);
     doc.setFont("helvetica", "normal"); doc.setFontSize(10);
     doc.text(lbl, xKat + 6, y + 14);
-    doc.text(a.n || "—", xAnz + colAnzahl / 2, y + 14, { align: "center" });
+    doc.text(anzText, xAnz + colAnzahl / 2, y + 14, { align: "center" });
     doc.text(a.std || "—", xStd + colStunden / 2, y + 14, { align: "center" });
     nameLines.forEach((ln, j) => doc.text(ln, xNam + 6, y + 14 + j * 12));
     y += rowH;
@@ -779,14 +974,17 @@ async function exportPDF(r) {
   doc.setFillColor(238, 247, 230);
   doc.rect(ML, y, TBL_W, 22, "F");
   doc.setDrawColor(180); doc.rect(ML, y, TBL_W, 22);
-  doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(62, 122, 40);
-  doc.text("Gesamt", xKat + 6, y + 15);
-  // Gesamtstunden berechnen
+  doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(62, 122, 40);
+  doc.text("Arbeitsleistung ohne Gerät", xKat + 6, y + 15);
+  // Gesamtstunden berechnen (LKW-Stunden zählen NICHT mit)
   const parse = (v) => { const n = parseFloat(String(v || "").replace(",", ".")); return isNaN(n) ? 0 : n; };
   let total = 0;
-  Object.values(r.arbeiter || {}).forEach(a => {
+  Object.entries(r.arbeiter || {}).forEach(([key, a]) => {
+    if (key === "kraftfahrer") return; // LKW nicht in Arbeitsleistung
     const std = parse(a.std); if (!std) return;
-    const n = parse(a.n); total += std * (n > 0 ? n : 1);
+    const anzNamen = (a.namen || "").split(",").map(s => s.trim()).filter(Boolean).length;
+    const n = anzNamen || parse(a.n);
+    total += std * (n > 0 ? n : 1);
   });
   const totalStr = (Number.isInteger(total) ? String(total) : total.toFixed(1).replace(".", ",")) + " Std.";
   doc.text(totalStr, xNam + colNamen - 6, y + 15, { align: "right" });
