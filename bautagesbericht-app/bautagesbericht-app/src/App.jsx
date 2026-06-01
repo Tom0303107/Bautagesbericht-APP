@@ -390,6 +390,16 @@ async function fileToCompressedDataURL(file, maxDim = 1280, quality = 0.78) {
   });
 }
 
+// Liest das Original als DataURL ein – wird beim Export in voller Qualität exportiert.
+async function fileToOriginalDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 function PhotoUpload({ fotos, onChange }) {
   const inputRef = useRef(null);
   const list = fotos || [];
@@ -400,8 +410,18 @@ function PhotoUpload({ fotos, onChange }) {
     const additions = [];
     for (const f of files) {
       try {
-        const dataUrl = await fileToCompressedDataURL(f);
-        additions.push({ id: "foto_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6), dataUrl, kommentar: "" });
+        const [dataUrl, originalUrl] = await Promise.all([
+          fileToCompressedDataURL(f),
+          fileToOriginalDataURL(f),
+        ]);
+        additions.push({
+          id: "foto_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+          dataUrl,           // klein, für Vorschau + PDF
+          originalUrl,       // Original, für ZIP-Export
+          originalName: f.name || "foto.jpg",
+          originalType: f.type || "image/jpeg",
+          kommentar: "",
+        });
       } catch (err) { console.error(err); }
     }
     onChange([...list, ...additions]);
@@ -658,15 +678,33 @@ function Editor({ report, onChange, onBack, onSave, onExport, existingFolders })
         </div>
         <div style={{ height: 2, background: "#e3e3d4", margin: "16px 0 24px" }} />
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-          <Field label="Datum"><TextInput type="date" value={r.datum} onChange={e => set({ datum: e.target.value })} /></Field>
-          <Field label="Temperatur">
-            <TempSlider value={r.temperatur} onChange={(v) => set({ temperatur: v })} />
-          </Field>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
+          <div style={{ flex: "0 0 200px" }}>
+            <Field label="Datum">
+              <TextInput type="date" value={r.datum} onChange={e => set({ datum: e.target.value })} style={{ fontSize: 16 }} />
+            </Field>
+          </div>
+          <div style={{ flex: "1 1 320px", minWidth: 280 }}>
+            <Field label="Temperatur">
+              <TempSlider value={r.temperatur} onChange={(v) => set({ temperatur: v })} />
+            </Field>
+          </div>
         </div>
         <Field label="Bauvorhaben"><BauvorhabenAutocomplete value={r.bauvorhaben} onChange={(v) => set({ bauvorhaben: v })} suggestions={existingFolders} /></Field>
         <Field label="Verantwortlicher Bauführer">
-          <NativeSelect value={r.bauführer} onChange={(v) => set({ bauführer: v })}
+          <NativeSelect value={r.bauführer} onChange={(v) => {
+              // Bauführer setzen; wenn der Vorarbeiter-Bereich noch leer ist,
+              // den Bauführer dort automatisch eintragen (Liste muss ihn kennen)
+              const patch = { bauführer: v };
+              const vor = r.arbeiter?.vorarbeiter?.namen || "";
+              if (v && !vor.trim()) {
+                patch.arbeiter = {
+                  ...r.arbeiter,
+                  vorarbeiter: { ...(r.arbeiter?.vorarbeiter || { n: "", std: "", namen: "" }), namen: v },
+                };
+              }
+              onChange({ ...r, ...patch });
+            }}
             options={BAUFUEHRER_LIST}
             placeholder="Bauführer wählen…" />
         </Field>
@@ -754,7 +792,13 @@ function FolderList({ folders, onOpenFolder, onNew, onDeleteFolder }) {
       <div style={{ display: "flex", alignItems: "flex-end", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 240 }}>
           <h1 style={{ fontFamily: "Oswald, sans-serif", fontSize: 38, color: INK, margin: 0, textTransform: "uppercase", letterSpacing: 1.5, lineHeight: 1 }}>Baustellen</h1>
-          <div style={{ marginTop: 10 }}><Logo small /></div>
+          <div style={{ marginTop: 10 }}>
+            <a href="https://zimmerei-schwaighofer.at/" target="_blank" rel="noopener noreferrer"
+               title="Zur Website der Zimmerei Schwaighofer GmbH"
+               style={{ display: "inline-block", textDecoration: "none" }}>
+              <Logo small />
+            </a>
+          </div>
         </div>
         <button onClick={onNew} style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "16px 24px", borderRadius: 14, border: "none", background: GREEN, color: "#fff", fontSize: 18, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 14px rgba(91,168,58,.35)" }}>
           <Plus size={24} /> Neuer Bericht
@@ -850,15 +894,16 @@ function ReportList({ folderName, items, onOpen, onNew, onDelete, onDuplicate, o
 // ============================================================
 // PDF export (jsPDF loaded from CDN)
 // ============================================================
-function loadScript(src) {
+function loadScript(src, checkFn) {
+  // checkFn: optionale Funktion, die prüft ob die Bibliothek schon verfügbar ist
   return new Promise((resolve, reject) => {
-    if (window.jspdf && window.jspdf.jsPDF) return resolve();
+    if (checkFn && checkFn()) return resolve();
     if (document.querySelector(`script[src="${src}"]`)) {
       // schon im DOM – kurz warten bis verfügbar
       let tries = 0;
       const iv = setInterval(() => {
-        if (window.jspdf && window.jspdf.jsPDF) { clearInterval(iv); resolve(); }
-        else if (++tries > 50) { clearInterval(iv); reject(new Error("jsPDF nicht geladen")); }
+        if (!checkFn || checkFn()) { clearInterval(iv); resolve(); }
+        else if (++tries > 50) { clearInterval(iv); reject(new Error("Skript nicht geladen: " + src)); }
       }, 100);
       return;
     }
@@ -867,12 +912,14 @@ function loadScript(src) {
     s.onload = () => resolve();
     s.onerror = () => reject(new Error("Skript konnte nicht geladen werden (Internet?)"));
     document.body.appendChild(s);
-    setTimeout(() => { if (!(window.jspdf && window.jspdf.jsPDF)) reject(new Error("Zeitüberschreitung beim Laden")); }, 8000);
+    setTimeout(() => { if (checkFn && !checkFn()) reject(new Error("Zeitüberschreitung beim Laden")); }, 8000);
   });
 }
+const hasJsPDF = () => !!(window.jspdf && window.jspdf.jsPDF);
+const hasJSZip = () => !!window.JSZip;
 
 async function exportPDF(r) {
-  await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
+  await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js", hasJsPDF);
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
@@ -1064,17 +1111,61 @@ async function exportPDF(r) {
 
   const sanitize = (s) => (s || "").replace(/[^a-zA-ZäöüÄÖÜß0-9-]+/g, "_").replace(/^_|_$/g, "");
   const baustelle = sanitize(r.bauvorhaben) || "Bericht";
-  const fname = `${baustelle}_${r.datum}.pdf`;
-  try {
-    doc.save(fname);
-  } catch (e) {
+  const pdfName = `${baustelle}_${r.datum}.pdf`;
+  const fotosVoll = Array.isArray(r.fotos) ? r.fotos.filter(f => f && f.originalUrl) : [];
+
+  // Wenn keine Fotos: einfach PDF speichern wie bisher
+  if (fotosVoll.length === 0) {
     try {
-      const url = doc.output("bloburl");
-      window.open(url, "_blank");
-    } catch (e2) {
-      throw new Error("PDF konnte nicht ausgegeben werden");
+      doc.save(pdfName);
+    } catch (e) {
+      try {
+        const url = doc.output("bloburl");
+        window.open(url, "_blank");
+      } catch (e2) {
+        throw new Error("PDF konnte nicht ausgegeben werden");
+      }
     }
+    return;
   }
+
+  // Mit Fotos: ZIP mit PDF + Original-Bildern erstellen
+  await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", hasJSZip);
+  const zip = new window.JSZip();
+  // PDF als ArrayBuffer in das ZIP packen
+  const pdfBlob = doc.output("blob");
+  zip.file(pdfName, pdfBlob);
+  // Fotos in einen Unterordner "Fotos/"
+  const fotosOrdner = zip.folder("Fotos");
+  for (let i = 0; i < fotosVoll.length; i++) {
+    const foto = fotosVoll[i];
+    // DataURL nach Blob/ArrayBuffer wandeln
+    const dataUrl = foto.originalUrl;
+    const comma = dataUrl.indexOf(",");
+    const meta = dataUrl.substring(5, comma); // z. B. "image/jpeg;base64"
+    const isBase64 = meta.includes("base64");
+    const mime = meta.split(";")[0] || "image/jpeg";
+    // Endung aus Mime ableiten
+    const ext = mime.includes("png") ? "png" : (mime.includes("heic") ? "heic" : "jpg");
+    const data = dataUrl.substring(comma + 1);
+    // Dateiname: laufende Nummer + Beschreibung (sanitized)
+    const num = String(i + 1).padStart(2, "0");
+    const kommentar = sanitize(foto.kommentar || "").substring(0, 60);
+    const fname = `${baustelle}_${r.datum}_${num}${kommentar ? "_" + kommentar : ""}.${ext}`;
+    fotosOrdner.file(fname, data, { base64: isBase64 });
+  }
+
+  const zipBlob = await zip.generateAsync({ type: "blob" });
+  const zipName = `${baustelle}_${r.datum}.zip`;
+  // Download auslösen
+  const url = URL.createObjectURL(zipBlob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = zipName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // ============================================================
@@ -1152,17 +1243,18 @@ export default function App() {
     showToast("Bericht gespeichert ✓");
   };
   const handleExport = async () => {
-    // Erst speichern (offline-tauglich), dann PDF versuchen.
+    // Erst speichern (offline-tauglich), dann Export versuchen.
     const saved = await persist(current);
     setCurrent(saved);
     setCurrentFolder(folderName(saved.bauvorhaben));
-    showToast("PDF wird erstellt…");
+    const hasFotos = Array.isArray(saved.fotos) && saved.fotos.length > 0;
+    showToast(hasFotos ? "ZIP wird erstellt (PDF + Fotos)…" : "PDF wird erstellt…");
     try {
       await exportPDF(saved);
-      showToast("PDF erstellt ✓");
+      showToast(hasFotos ? "ZIP erstellt ✓" : "PDF erstellt ✓");
     } catch (e) {
       console.error(e);
-      showToast("PDF-Export benötigt Internet – Bericht ist gespeichert");
+      showToast("Export benötigt Internet – Bericht ist gespeichert");
     }
   };
   const handleDelete = async (id) => {
