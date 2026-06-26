@@ -37,7 +37,7 @@ const MITARBEITER = [
   { name: "Kronbichler Thomas",   taetigkeit: "Vorarbeiter" },
   { name: "Löffler Peter",        taetigkeit: "Meister + Tech. Zeichner" },
   { name: "Miller Bastian",       taetigkeit: "Facharbeiter" },
-  { name: "Mittermaier Christoph",taetigkeit: "Facharbeiter / Lehrling" },
+  { name: "Mittermaier Christoph",taetigkeit: "Lehrling 3. Lehrjahr" },
   { name: "Müller Jürgen",        taetigkeit: "Lehrling 2. Lehrjahr" },
   { name: "Neumann Tim",          taetigkeit: "Meister + Tech. Zeichner" },
   { name: "Osterauer Markus",     taetigkeit: "LKW groß + Vorarbeiter" },
@@ -60,24 +60,28 @@ const MITARBEITER = [
 
 const isLehrling     = (t) => /Lehrling/i.test(t);
 const isFacharbeiter = (t) => /Facharbeiter/i.test(t) && !isLehrling(t);
+// Echter Vorarbeiter: Tätigkeit enthält "Vorarbeiter" oder "Polier" (aber kein Lehrling).
+// "Meister" zählt NICHT als Vorarbeiter für die Auswahllisten.
+const isEchterVorarbeiter = (t) => /Vorarbeiter|Polier/i.test(t) && !isLehrling(t);
+// Für Bauführer weiterhin etwas breiter (inkl. Meister, Polier, Geschäftsführung)
 const isVorarbeiter  = (t) => /Vorarbeiter|Polier|Meister/i.test(t);
-const isBuro         = (t) => /Büromitarbeiter|Geschäftsführung/i.test(t);
+const isBuro         = (t) => /Büromitarbeiter/i.test(t);
 const isTechZeichner = (t) => /Tech(\.|nischer)?\s*Zeichner|Bauleiter/i.test(t);
 const isLager        = (t) => /Lagermitarbeiter/i.test(t);
 
-// Bauführer-Auswahl: alle außer Lehrlinge, Büro, Tech. Zeichner/Bauleiter, Lager
+// Bauführer-Auswahl: alle außer Lehrlinge, Büro (außer Geschäftsführung), Tech. Zeichner/Bauleiter, Lager
 const BAUFUEHRER_LIST = MITARBEITER
   .filter(m => !isLehrling(m.taetigkeit) && !isBuro(m.taetigkeit) && !isTechZeichner(m.taetigkeit) && !isLager(m.taetigkeit))
   .map(m => m.name);
 
-// Vorarbeiter-Feld: Vorarbeiter + Facharbeiter + Meister (ohne Lehrlinge)
+// Vorarbeiter-Feld: NUR echte Vorarbeiter (Vorarbeiter oder Polier, ohne Meister, ohne Lehrling)
 const VORARBEITER_LIST = MITARBEITER
-  .filter(m => (isVorarbeiter(m.taetigkeit) || isFacharbeiter(m.taetigkeit)) && !isLehrling(m.taetigkeit))
+  .filter(m => isEchterVorarbeiter(m.taetigkeit))
   .map(m => m.name);
 
-// Facharbeiter-Feld: nur Facharbeiter (ohne "Vorarbeiter" und ohne Lehrlinge)
+// Facharbeiter-Feld: Facharbeiter + alle echten Vorarbeiter (zur gemeinsamen Auswahl)
 const FACHARBEITER_LIST = MITARBEITER
-  .filter(m => isFacharbeiter(m.taetigkeit) && !isVorarbeiter(m.taetigkeit) && !isLehrling(m.taetigkeit))
+  .filter(m => (isFacharbeiter(m.taetigkeit) || isEchterVorarbeiter(m.taetigkeit)) && !isLehrling(m.taetigkeit))
   .map(m => m.name);
 
 // Lehrlings-Feld: alle Lehrlinge
@@ -88,12 +92,39 @@ const LEHRLINGE_LIST = MITARBEITER
 // LKW-Optionen (feste Auswahl)
 const LKW_OPTIONS = ["LKW 31 Tonnen", "LKW 24 Tonnen"];
 
+// Techniker-Auswahl (feste Reihenfolge alphabetisch)
+const TECHNIKER_LIST = [
+  "Fahringer Michael",
+  "Grones Stefan",
+  "Heger Thomas",
+  "Löffler Peter",
+  "Neumann Tim",
+  "Schwaighofer Andreas",
+];
+
+// Fahrzeuge/Hebegeräte
+const FAHRZEUGE_LIST = [
+  "LKW 31 Tonnen (Scania)",
+  "LKW 24 Tonnen (MAN)",
+  "Traktor STEYR",
+  "Traktor STEYR (Mulde)",
+  "Traktor STEYR (Auwärter)",
+  "Traktor STEYR (Hackenlift)",
+  "Stapler",
+  "Manitou",
+  "Arbeitsbühne",
+];
+
+// Mengeneinheiten
+const EINHEIT_LIST = ["lfm", "m²", "m³", "kg", "Tonnen", "Stk.", "Pkg.", "EH", "Rollen"];
+
 const LOGO = "data:image/jpeg;base64,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";
 
 const emptyReport = () => ({
   id: "rep_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
   datum: new Date().toISOString().slice(0, 10),
   bauvorhaben: "",
+  techniker: "",
   bauführer: "",
   witterung: { sonne: false, regen: false, frost: false, wind: false, schnee: false },
   temperatur: "",
@@ -101,12 +132,12 @@ const emptyReport = () => ({
     vorarbeiter: { n: "", std: "", namen: "" },
     facharbeiter: { n: "", std: "", namen: "" },
     lehrling: { n: "", std: "", namen: "" },
-    kraftfahrer: { n: "", std: "", namen: "" },
   },
+  fahrzeuge: [],   // [{ id, name, std }]
   leistungsergebnisse: [""],   // Liste von Punkten
-  material: "",
-  regieLeistungen: [""],       // Liste von Punkten
-  regieMaterial: "",
+  material: [],                // [{ id, bezeichnung, menge, einheit }]
+  regieLeistungen: [],         // [{ id, bezeichnung, personen, stunden }]
+  regieMaterial: [],           // [{ id, bezeichnung, menge, einheit }]
   fotos: [],          // [{ id, dataUrl, kommentar }]
   signature: null, // dataURL
   updatedAt: Date.now(),
@@ -170,10 +201,39 @@ async function loadReport(id) {
       rep.leistungsergebnisse = str ? str.split("\n").map(s => s.trim()).filter(Boolean) : [""];
       if (rep.leistungsergebnisse.length === 0) rep.leistungsergebnisse = [""];
     }
-    // Migration: neue Regie-Felder ergänzen
-    if (!Array.isArray(rep.regieLeistungen)) rep.regieLeistungen = [""];
-    if (rep.regieMaterial === undefined) rep.regieMaterial = "";
+    // Regie-Leistungen: String-Liste -> Objekt-Liste
+    if (!Array.isArray(rep.regieLeistungen)) {
+      rep.regieLeistungen = [];
+    } else if (rep.regieLeistungen.length > 0 && typeof rep.regieLeistungen[0] === "string") {
+      rep.regieLeistungen = rep.regieLeistungen
+        .filter(s => s && s.trim())
+        .map(s => ({ id: "regie_" + Math.random().toString(36).slice(2, 8), bezeichnung: s, personen: "", stunden: "" }));
+    }
     if (!Array.isArray(rep.fotos)) rep.fotos = [];
+    if (rep.techniker === undefined) rep.techniker = "";
+    // Material/Regie-Material: String -> Liste
+    const migrateMaterial = (val) => {
+      if (Array.isArray(val)) return val;
+      const s = (val || "").trim();
+      if (!s) return [];
+      return [{ id: "mat_" + Math.random().toString(36).slice(2, 8), bezeichnung: s, menge: "", einheit: "" }];
+    };
+    rep.material = migrateMaterial(rep.material);
+    rep.regieMaterial = migrateMaterial(rep.regieMaterial);
+    // Fahrzeuge: aus altem kraftfahrer-Eintrag übernehmen wenn vorhanden
+    if (!Array.isArray(rep.fahrzeuge)) {
+      const alt = rep.arbeiter?.kraftfahrer;
+      if (alt && (alt.namen || alt.std)) {
+        rep.fahrzeuge = [{ id: "fz_" + Math.random().toString(36).slice(2, 8), name: alt.namen || "", std: alt.std || "" }];
+      } else {
+        rep.fahrzeuge = [];
+      }
+    }
+    // kraftfahrer-Kategorie aus arbeiter entfernen (wird zu fahrzeuge)
+    if (rep.arbeiter && rep.arbeiter.kraftfahrer) {
+      const { kraftfahrer, ...rest } = rep.arbeiter;
+      rep.arbeiter = rest;
+    }
     // Migration: namen-Feld in Arbeiter-Kategorien ergänzen
     if (rep.arbeiter) {
       Object.keys(rep.arbeiter).forEach(k => {
@@ -207,10 +267,10 @@ function SignaturePad({ value, onChange }) {
     canvas.height = rect.height * ratio;
     const ctx = canvas.getContext("2d");
     ctx.scale(ratio, ratio);
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 3.5;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.strokeStyle = "#16324f";
+    ctx.strokeStyle = "#000000";
     if (value) {
       const img = new Image();
       img.onload = () => ctx.drawImage(img, 0, 0, rect.width, rect.height);
@@ -239,7 +299,17 @@ function SignaturePad({ value, onChange }) {
   const end = () => {
     if (!drawing.current) return;
     drawing.current = false;
-    onChange(canvasRef.current.toDataURL("image/png"));
+    // Vor dem Export auf weißen Hintergrund kopieren, damit die Unterschrift
+    // im PDF deutlich sichtbar ist (transparente PNGs wirken oft blass).
+    const src = canvasRef.current;
+    const out = document.createElement("canvas");
+    out.width = src.width;
+    out.height = src.height;
+    const octx = out.getContext("2d");
+    octx.fillStyle = "#ffffff";
+    octx.fillRect(0, 0, out.width, out.height);
+    octx.drawImage(src, 0, 0);
+    onChange(out.toDataURL("image/png"));
   };
   const clear = () => {
     const canvas = canvasRef.current;
@@ -356,6 +426,179 @@ function BulletListInput({ items, onChange, placeholder }) {
       <button onClick={add} style={{ ...btnGhost, borderColor: GREEN, color: DARKGREEN, marginTop: 2 }}>
         <Plus size={18} /> Punkt hinzufügen
       </button>
+    </div>
+  );
+}
+
+// Strukturierte Materialliste: Bezeichnung, Menge, Einheit
+function MaterialList({ items, onChange, placeholder }) {
+  const list = Array.isArray(items) ? items : [];
+  const newItem = () => ({ id: "mat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6), bezeichnung: "", menge: "", einheit: "" });
+  const update = (id, field, val) => onChange(list.map(it => it.id === id ? { ...it, [field]: val } : it));
+  const add = () => onChange([...list, newItem()]);
+  const remove = (id) => onChange(list.filter(it => it.id !== id));
+
+  return (
+    <div>
+      {list.length === 0 && (
+        <p style={{ fontSize: 14, color: "#9a9b89", margin: "0 0 10px 2px", fontStyle: "italic" }}>
+          Noch kein Material erfasst.
+        </p>
+      )}
+      {list.map((it) => (
+        <div key={it.id} style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "stretch", flexWrap: "wrap" }}>
+          <input
+            value={it.bezeichnung}
+            onChange={e => update(it.id, "bezeichnung", e.target.value)}
+            placeholder={placeholder || "Bezeichnung…"}
+            style={{ ...inputStyle, flex: "2 1 200px", minWidth: 180 }}
+          />
+          <input
+            inputMode="decimal"
+            value={it.menge}
+            onChange={e => update(it.id, "menge", e.target.value)}
+            placeholder="Menge"
+            style={{ ...inputStyle, flex: "0 0 100px", textAlign: "center" }}
+          />
+          <select
+            value={it.einheit || ""}
+            onChange={e => update(it.id, "einheit", e.target.value)}
+            style={{ ...inputStyle, flex: "0 0 110px", appearance: "auto", WebkitAppearance: "menulist", paddingRight: 14 }}>
+            <option value="">Einheit…</option>
+            {EINHEIT_LIST.map(u => <option key={u} value={u}>{u}</option>)}
+          </select>
+          <button onClick={() => remove(it.id)} style={{ ...btnGhost, padding: 12, borderColor: "#e0c4c4", color: "#b04a4a", flexShrink: 0 }} title="Eintrag entfernen">
+            <X size={20} />
+          </button>
+        </div>
+      ))}
+      <button onClick={add} style={{ ...btnGhost, borderColor: GREEN, color: DARKGREEN, marginTop: 2 }}>
+        <Plus size={18} /> Material hinzufügen
+      </button>
+    </div>
+  );
+}
+
+// Fahrzeug-/Hebegerät-Liste: Auswahl + Stunden
+function FahrzeugList({ items, onChange }) {
+  const list = Array.isArray(items) ? items : [];
+  const newItem = () => ({ id: "fz_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6), name: "", std: "" });
+  const update = (id, field, val) => onChange(list.map(it => it.id === id ? { ...it, [field]: val } : it));
+  const add = () => onChange([...list, newItem()]);
+  const remove = (id) => onChange(list.filter(it => it.id !== id));
+
+  // Summe der Stunden
+  const totalStd = list.reduce((s, it) => {
+    const n = parseFloat(String(it.std || "").replace(",", "."));
+    return s + (isNaN(n) ? 0 : n);
+  }, 0);
+  const fmt = (h) => Number.isInteger(h) ? String(h) : h.toFixed(1).replace(".", ",");
+
+  return (
+    <div>
+      {list.length === 0 && (
+        <p style={{ fontSize: 14, color: "#9a9b89", margin: "0 0 10px 2px", fontStyle: "italic" }}>
+          Noch kein Fahrzeug/Hebegerät erfasst.
+        </p>
+      )}
+      {list.map((it) => (
+        <div key={it.id} style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "stretch", flexWrap: "wrap" }}>
+          <select
+            value={it.name || ""}
+            onChange={e => update(it.id, "name", e.target.value)}
+            style={{ ...inputStyle, flex: "2 1 240px", minWidth: 220, appearance: "auto", WebkitAppearance: "menulist", paddingRight: 14 }}>
+            <option value="">Fahrzeug/Hebegerät wählen…</option>
+            {FAHRZEUGE_LIST.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+          <input
+            inputMode="decimal"
+            value={it.std}
+            onChange={e => update(it.id, "std", e.target.value)}
+            placeholder="Stunden"
+            style={{ ...inputStyle, flex: "0 0 110px", textAlign: "center" }}
+          />
+          <button onClick={() => remove(it.id)} style={{ ...btnGhost, padding: 12, borderColor: "#e0c4c4", color: "#b04a4a", flexShrink: 0 }} title="Eintrag entfernen">
+            <X size={20} />
+          </button>
+        </div>
+      ))}
+      <button onClick={add} style={{ ...btnGhost, borderColor: GREEN, color: DARKGREEN, marginTop: 2 }}>
+        <Plus size={18} /> Fahrzeug/Hebegerät hinzufügen
+      </button>
+      {list.length > 0 && (
+        <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "#fff4e6", border: "2px solid #d99a3f", borderRadius: 12 }}>
+          <span style={{ fontWeight: 800, color: "#8a5a1c", fontSize: 15 }}>Gerätestunden gesamt</span>
+          <span style={{ fontWeight: 800, color: "#8a5a1c", fontSize: 18 }}>{fmt(totalStd)} Std.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Regie-Leistungen: Bezeichnung + Personen + Stunden mit Gesamtsumme
+function RegieLeistungList({ items, onChange }) {
+  const list = Array.isArray(items) ? items : [];
+  const newItem = () => ({ id: "regie_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6), bezeichnung: "", personen: "", stunden: "" });
+  const update = (id, field, val) => onChange(list.map(it => it.id === id ? { ...it, [field]: val } : it));
+  const add = () => onChange([...list, newItem()]);
+  const remove = (id) => onChange(list.filter(it => it.id !== id));
+
+  const parse = (v) => { const n = parseFloat(String(v || "").replace(",", ".")); return isNaN(n) ? 0 : n; };
+  // Gesamtstunden = Personen × Stunden je Eintrag
+  const totalStd = list.reduce((s, it) => {
+    const std = parse(it.stunden); if (!std) return s;
+    const p = parse(it.personen); return s + std * (p > 0 ? p : 1);
+  }, 0);
+  const fmt = (h) => Number.isInteger(h) ? String(h) : h.toFixed(1).replace(".", ",");
+
+  return (
+    <div>
+      {list.length === 0 && (
+        <p style={{ fontSize: 14, color: "#9a9b89", margin: "0 0 10px 2px", fontStyle: "italic" }}>
+          Noch keine Regie-Leistung erfasst.
+        </p>
+      )}
+      {list.map((it) => (
+        <div key={it.id} style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "stretch", flexWrap: "wrap" }}>
+          <input
+            value={it.bezeichnung}
+            onChange={e => update(it.id, "bezeichnung", e.target.value)}
+            placeholder="Bezeichnung der Regie-Leistung…"
+            style={{ ...inputStyle, flex: "2 1 240px", minWidth: 200 }}
+          />
+          <input
+            inputMode="numeric"
+            value={it.personen}
+            onChange={e => update(it.id, "personen", e.target.value)}
+            placeholder="Personen"
+            style={{ ...inputStyle, flex: "0 0 90px", textAlign: "center" }}
+            title="Anzahl Personen"
+          />
+          <input
+            inputMode="decimal"
+            value={it.stunden}
+            onChange={e => update(it.id, "stunden", e.target.value)}
+            placeholder="Std."
+            style={{ ...inputStyle, flex: "0 0 90px", textAlign: "center" }}
+            title="Stunden je Person"
+          />
+          <button onClick={() => remove(it.id)} style={{ ...btnGhost, padding: 12, borderColor: "#e0c4c4", color: "#b04a4a", flexShrink: 0 }} title="Eintrag entfernen">
+            <X size={20} />
+          </button>
+        </div>
+      ))}
+      <button onClick={add} style={{ ...btnGhost, borderColor: GREEN, color: DARKGREEN, marginTop: 2 }}>
+        <Plus size={18} /> Regie-Leistung hinzufügen
+      </button>
+      {list.length > 0 && (
+        <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "#eef7e6", border: "2px solid " + GREEN, borderRadius: 12 }}>
+          <span style={{ fontWeight: 800, color: DARKGREEN, fontSize: 15 }}>Regie-Stunden gesamt (zusätzlich)</span>
+          <span style={{ fontWeight: 800, color: DARKGREEN, fontSize: 18 }}>{fmt(totalStd)} Std.</span>
+        </div>
+      )}
+      <p style={{ fontSize: 12, color: "#9a9b89", margin: "8px 2px 0" }}>
+        Berechnung: Personen × Stunden je Eintrag. Diese Stunden kommen zusätzlich zur Arbeitsleistung oben.
+      </p>
     </div>
   );
 }
@@ -553,31 +796,61 @@ function NativeSelect({ value, onChange, options, placeholder }) {
 
 // Temperatur-Schieberegler von -20 bis +40 °C mit großer Anzeige
 function TempSlider({ value, onChange, min = -20, max = 40 }) {
-  // value ist String ("+4", "-5", "0"). Parse zu Zahl, default 10 °C wenn leer.
   const parsed = parseInt((value || "").replace("+", ""), 10);
   const num = isNaN(parsed) ? 10 : parsed;
   const display = num > 0 ? "+" + num : String(num);
-  // Farbverlauf je nach Temperatur (blau → rot)
   const t = (num - min) / (max - min);
-  const hue = Math.round(220 - t * 220); // 220° (blau) → 0° (rot)
-  const color = `hsl(${hue}, 70%, 45%)`;
+  const hue = Math.round(220 - t * 220);
+  const color = `hsl(${hue}, 75%, 45%)`;
   const handleChange = (raw) => {
     const n = parseInt(raw, 10);
     onChange(n > 0 ? "+" + n : String(n));
   };
+  const fillPercent = t * 100;
+  const trackBg = `linear-gradient(to right, ${color} 0%, ${color} ${fillPercent}%, #d6d7c8 ${fillPercent}%, #d6d7c8 100%)`;
   return (
-    <div>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 4, marginBottom: 10 }}>
-        <span style={{ fontSize: 44, fontWeight: 800, color, lineHeight: 1, fontFamily: "Oswald, sans-serif" }}>{display}</span>
-        <span style={{ fontSize: 22, fontWeight: 700, color: "#6b6c5c" }}>°C</span>
+    <div style={{ padding: "8px 4px 4px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 4, marginBottom: 14 }}>
+        <span style={{ fontSize: 48, fontWeight: 800, color, lineHeight: 1, fontFamily: "Oswald, sans-serif" }}>{display}</span>
+        <span style={{ fontSize: 24, fontWeight: 700, color: "#6b6c5c" }}>°C</span>
       </div>
-      <input type="range" min={min} max={max} step={1} value={num}
-        onChange={(e) => handleChange(e.target.value)}
-        style={{
-          width: "100%", height: 32, accentColor: color, cursor: "pointer",
-          WebkitAppearance: "none", appearance: "none", background: "transparent",
-        }} />
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#9a9b89", marginTop: 2, padding: "0 4px" }}>
+      <div style={{ position: "relative", padding: "10px 0" }}>
+        <input type="range" min={min} max={max} step={1} value={num}
+          onChange={(e) => handleChange(e.target.value)}
+          className="temp-slider"
+          style={{ width: "100%", margin: 0, cursor: "pointer", display: "block", background: trackBg }} />
+      </div>
+      <style>{`
+        input.temp-slider {
+          -webkit-appearance: none;
+          appearance: none;
+          height: 14px;
+          border-radius: 999px;
+          border: 1px solid #b8b9a8;
+          outline: none;
+        }
+        input.temp-slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          background: #ffffff;
+          border: 3px solid ${color};
+          box-shadow: 0 2px 6px rgba(0,0,0,.25);
+          cursor: grab;
+        }
+        input.temp-slider::-webkit-slider-thumb:active { cursor: grabbing; transform: scale(1.1); }
+        input.temp-slider::-moz-range-thumb {
+          width: 32px; height: 32px; border-radius: 50%;
+          background: #ffffff;
+          border: 3px solid ${color};
+          box-shadow: 0 2px 6px rgba(0,0,0,.25);
+          cursor: grab;
+        }
+        input.temp-slider::-moz-range-track { background: transparent; }
+      `}</style>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6b6c5c", marginTop: 8, padding: "0 4px", fontWeight: 600 }}>
         <span>{min} °C</span>
         <span>0 °C</span>
         <span>+{max} °C</span>
@@ -649,10 +922,9 @@ function Editor({ report, onChange, onBack, onSave, onExport, existingFolders })
   const toggleW = (k) => set({ witterung: { ...r.witterung, [k]: !r.witterung[k] } });
 
   const arbRows = [
-    ["vorarbeiter",  "Vorarbeiter",       VORARBEITER_LIST,  "multi"],
-    ["facharbeiter", "Facharbeiter",      FACHARBEITER_LIST, "multi"],
-    ["lehrling",     "Lehrlinge",         LEHRLINGE_LIST,    "multi"],
-    ["kraftfahrer",  "LKW mit Ladekran",  LKW_OPTIONS,       "single"],
+    ["vorarbeiter",  "Vorarbeiter",   VORARBEITER_LIST,  "multi"],
+    ["facharbeiter", "Facharbeiter",  FACHARBEITER_LIST, "multi"],
+    ["lehrling",     "Lehrlinge",     LEHRLINGE_LIST,    "multi"],
   ];
 
   return (
@@ -691,6 +963,11 @@ function Editor({ report, onChange, onBack, onSave, onExport, existingFolders })
           </div>
         </div>
         <Field label="Bauvorhaben"><BauvorhabenAutocomplete value={r.bauvorhaben} onChange={(v) => set({ bauvorhaben: v })} suggestions={existingFolders} /></Field>
+        <Field label="Zuständiger Techniker">
+          <NativeSelect value={r.techniker} onChange={(v) => set({ techniker: v })}
+            options={TECHNIKER_LIST}
+            placeholder="Techniker wählen…" />
+        </Field>
         <Field label="Verantwortlicher Bauführer">
           <NativeSelect value={r.bauführer} onChange={(v) => {
               // Bauführer setzen; wenn der Vorarbeiter-Bereich noch leer ist,
@@ -766,10 +1043,18 @@ function Editor({ report, onChange, onBack, onSave, onExport, existingFolders })
           </p>
         </Field>
 
+        <Field label="Fahrzeuge / Hebegeräte">
+          <FahrzeugList items={r.fahrzeuge} onChange={(v) => set({ fahrzeuge: v })} />
+        </Field>
+
         <Field label="Leistungsergebnisse"><BulletListInput items={r.leistungsergebnisse} onChange={(v) => set({ leistungsergebnisse: v })} placeholder="Durchgeführte Arbeit eintragen…" /></Field>
-        <Field label="Material"><TextArea value={r.material} onChange={e => set({ material: e.target.value })} /></Field>
-        <Field label="Regie-Leistungen"><BulletListInput items={r.regieLeistungen} onChange={(v) => set({ regieLeistungen: v })} placeholder="Regie-Leistung eintragen…" /></Field>
-        <Field label="Regie-Material"><TextArea value={r.regieMaterial} onChange={e => set({ regieMaterial: e.target.value })} /></Field>
+        <Field label="Material">
+          <MaterialList items={r.material} onChange={(v) => set({ material: v })} placeholder="Bezeichnung des Materials…" />
+        </Field>
+        <Field label="Regie-Leistungen"><RegieLeistungList items={r.regieLeistungen} onChange={(v) => set({ regieLeistungen: v })} /></Field>
+        <Field label="Regie-Material">
+          <MaterialList items={r.regieMaterial} onChange={(v) => set({ regieMaterial: v })} placeholder="Bezeichnung des Regie-Materials…" />
+        </Field>
 
         <Field label="Fotos zum Baufortschritt">
           <PhotoUpload fotos={r.fotos} onChange={(v) => set({ fotos: v })} />
@@ -950,6 +1235,7 @@ async function exportPDF(r) {
 
   line("Datum:", r.datum);
   line("Bauvorhaben:", r.bauvorhaben);
+  if (r.techniker) line("Techniker:", r.techniker);
   line("Bauführer:", r.bauführer);
   const wit = Object.entries(r.witterung).filter(([, v]) => v).map(([k]) => k.charAt(0).toUpperCase() + k.slice(1)).join(", ");
   line("Witterung:", wit + (r.temperatur ? `  (${r.temperatur} °C)` : ""));
@@ -986,7 +1272,6 @@ async function exportPDF(r) {
     ["vorarbeiter", "Vorarbeiter"],
     ["facharbeiter", "Facharbeiter"],
     ["lehrling", "Lehrlinge"],
-    ["kraftfahrer", "LKW mit Ladekran"],
   ];
   doc.setFont("helvetica", "normal"); doc.setFontSize(10);
   rows.forEach(([k, lbl], i) => {
@@ -1023,11 +1308,10 @@ async function exportPDF(r) {
   doc.setDrawColor(180); doc.rect(ML, y, TBL_W, 22);
   doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(62, 122, 40);
   doc.text("Arbeitsleistung ohne Gerät", xKat + 6, y + 15);
-  // Gesamtstunden berechnen (LKW-Stunden zählen NICHT mit)
+  // Gesamtstunden berechnen
   const parse = (v) => { const n = parseFloat(String(v || "").replace(",", ".")); return isNaN(n) ? 0 : n; };
   let total = 0;
   Object.entries(r.arbeiter || {}).forEach(([key, a]) => {
-    if (key === "kraftfahrer") return; // LKW nicht in Arbeitsleistung
     const std = parse(a.std); if (!std) return;
     const anzNamen = (a.namen || "").split(",").map(s => s.trim()).filter(Boolean).length;
     const n = anzNamen || parse(a.n);
@@ -1064,20 +1348,167 @@ async function exportPDF(r) {
       y += lines.length * 13 + 3;
     });
   };
+  // Material-Block: kleine Tabelle Bezeichnung / Menge / Einheit
+  const materialBlock = (label, arr) => {
+    if (y > H - 110) { doc.addPage(); y = 50; }
+    y += 6; doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    doc.text(label, ML, y); y += 14;
+    const items = Array.isArray(arr) ? arr.filter(it => it && (it.bezeichnung || it.menge || it.einheit)) : [];
+    if (items.length === 0) {
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      doc.text("—", ML, y); y += 14; return;
+    }
+    const tblW = W - 2 * ML;
+    const cBez = tblW * 0.62;
+    const cMen = tblW * 0.18;
+    const cEin = tblW * 0.20;
+    // Kopf
+    doc.setFillColor(238, 240, 230);
+    doc.rect(ML, y, tblW, 16, "F");
+    doc.setDrawColor(200); doc.setLineWidth(0.4);
+    doc.rect(ML, y, tblW, 16);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(62, 122, 40);
+    doc.text("Bezeichnung", ML + 5, y + 11);
+    doc.text("Menge", ML + cBez + cMen / 2, y + 11, { align: "center" });
+    doc.text("Einheit", ML + cBez + cMen + cEin / 2, y + 11, { align: "center" });
+    y += 16;
+    doc.setTextColor(40, 40, 30);
+    items.forEach((it, i) => {
+      const bezLines = doc.splitTextToSize(it.bezeichnung || "—", cBez - 10);
+      const rowH = Math.max(16, bezLines.length * 12 + 4);
+      if (y + rowH > H - 60) { doc.addPage(); y = 50; }
+      if (i % 2 === 0) {
+        doc.setFillColor(251, 251, 244);
+        doc.rect(ML, y, tblW, rowH, "F");
+      }
+      doc.setDrawColor(230); doc.rect(ML, y, tblW, rowH);
+      doc.line(ML + cBez, y, ML + cBez, y + rowH);
+      doc.line(ML + cBez + cMen, y, ML + cBez + cMen, y + rowH);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      bezLines.forEach((ln, j) => doc.text(ln, ML + 5, y + 12 + j * 12));
+      doc.text(it.menge || "—", ML + cBez + cMen / 2, y + 12, { align: "center" });
+      doc.text(it.einheit || "—", ML + cBez + cMen + cEin / 2, y + 12, { align: "center" });
+      y += rowH;
+    });
+    y += 6;
+  };
+  // Fahrzeuge-Block mit eigener Stundensumme
+  const fahrzeugBlock = () => {
+    const items = Array.isArray(r.fahrzeuge) ? r.fahrzeuge.filter(it => it && (it.name || it.std)) : [];
+    if (items.length === 0) return;
+    if (y > H - 110) { doc.addPage(); y = 50; }
+    y += 6; doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    doc.text("Fahrzeuge / Hebegeräte", ML, y); y += 14;
+    const tblW = W - 2 * ML;
+    const cName = tblW * 0.78;
+    const cStd = tblW * 0.22;
+    // Kopf
+    doc.setFillColor(255, 240, 220);
+    doc.rect(ML, y, tblW, 16, "F");
+    doc.setDrawColor(200); doc.rect(ML, y, tblW, 16);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(138, 90, 28);
+    doc.text("Fahrzeug / Hebegerät", ML + 5, y + 11);
+    doc.text("Stunden", ML + cName + cStd / 2, y + 11, { align: "center" });
+    y += 16;
+    doc.setTextColor(40, 40, 30);
+    let totalFz = 0;
+    items.forEach((it, i) => {
+      const rowH = 18;
+      if (y + rowH > H - 60) { doc.addPage(); y = 50; }
+      if (i % 2 === 0) { doc.setFillColor(251, 251, 244); doc.rect(ML, y, tblW, rowH, "F"); }
+      doc.setDrawColor(230); doc.rect(ML, y, tblW, rowH);
+      doc.line(ML + cName, y, ML + cName, y + rowH);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      doc.text(it.name || "—", ML + 5, y + 13);
+      doc.text(it.std || "—", ML + cName + cStd / 2, y + 13, { align: "center" });
+      const n = parseFloat(String(it.std || "").replace(",", "."));
+      if (!isNaN(n)) totalFz += n;
+      y += rowH;
+    });
+    // Summen-Zeile
+    if (y + 20 > H - 60) { doc.addPage(); y = 50; }
+    doc.setFillColor(255, 232, 200);
+    doc.rect(ML, y, tblW, 20, "F");
+    doc.setDrawColor(180); doc.rect(ML, y, tblW, 20);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(138, 90, 28);
+    doc.text("Gerätestunden gesamt", ML + 5, y + 13);
+    const totalFzStr = (Number.isInteger(totalFz) ? String(totalFz) : totalFz.toFixed(1).replace(".", ",")) + " Std.";
+    doc.text(totalFzStr, ML + tblW - 6, y + 13, { align: "right" });
+    doc.setTextColor(40, 40, 30);
+    y += 26;
+  };
+  // Regie-Leistungen-Block: Bezeichnung / Personen / Stunden mit Gesamt
+  const regieLeistungBlock = () => {
+    const items = Array.isArray(r.regieLeistungen) ? r.regieLeistungen.filter(it => it && (it.bezeichnung || it.personen || it.stunden)) : [];
+    if (y > H - 110) { doc.addPage(); y = 50; }
+    y += 6; doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    doc.text("Regie-Leistungen", ML, y); y += 14;
+    if (items.length === 0) {
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      doc.text("—", ML, y); y += 14; return;
+    }
+    const tblW = W - 2 * ML;
+    const cBez = tblW * 0.60;
+    const cPer = tblW * 0.18;
+    const cStd = tblW * 0.22;
+    // Kopf
+    doc.setFillColor(238, 240, 230);
+    doc.rect(ML, y, tblW, 16, "F");
+    doc.setDrawColor(200); doc.setLineWidth(0.4);
+    doc.rect(ML, y, tblW, 16);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(62, 122, 40);
+    doc.text("Bezeichnung", ML + 5, y + 11);
+    doc.text("Personen", ML + cBez + cPer / 2, y + 11, { align: "center" });
+    doc.text("Stunden", ML + cBez + cPer + cStd / 2, y + 11, { align: "center" });
+    y += 16;
+    doc.setTextColor(40, 40, 30);
+    const parse = (v) => { const n = parseFloat(String(v || "").replace(",", ".")); return isNaN(n) ? 0 : n; };
+    let totalRegie = 0;
+    items.forEach((it, i) => {
+      const bezLines = doc.splitTextToSize(it.bezeichnung || "—", cBez - 10);
+      const rowH = Math.max(16, bezLines.length * 12 + 4);
+      if (y + rowH > H - 60) { doc.addPage(); y = 50; }
+      if (i % 2 === 0) { doc.setFillColor(251, 251, 244); doc.rect(ML, y, tblW, rowH, "F"); }
+      doc.setDrawColor(230); doc.rect(ML, y, tblW, rowH);
+      doc.line(ML + cBez, y, ML + cBez, y + rowH);
+      doc.line(ML + cBez + cPer, y, ML + cBez + cPer, y + rowH);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      bezLines.forEach((ln, j) => doc.text(ln, ML + 5, y + 12 + j * 12));
+      doc.text(it.personen || "—", ML + cBez + cPer / 2, y + 12, { align: "center" });
+      doc.text(it.stunden || "—", ML + cBez + cPer + cStd / 2, y + 12, { align: "center" });
+      const std = parse(it.stunden);
+      const per = parse(it.personen);
+      totalRegie += std * (per > 0 ? per : 1);
+      y += rowH;
+    });
+    // Summe
+    if (y + 20 > H - 60) { doc.addPage(); y = 50; }
+    doc.setFillColor(238, 247, 230);
+    doc.rect(ML, y, tblW, 20, "F");
+    doc.setDrawColor(180); doc.rect(ML, y, tblW, 20);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(62, 122, 40);
+    doc.text("Regie-Stunden gesamt (zusätzlich)", ML + 5, y + 13);
+    const totalRegieStr = (Number.isInteger(totalRegie) ? String(totalRegie) : totalRegie.toFixed(1).replace(".", ",")) + " Std.";
+    doc.text(totalRegieStr, ML + tblW - 6, y + 13, { align: "right" });
+    doc.setTextColor(40, 40, 30);
+    y += 26;
+  };
   bulletBlock("Leistungsergebnisse", r.leistungsergebnisse);
-  block("Material", r.material);
-  bulletBlock("Regie-Leistungen", r.regieLeistungen);
-  block("Regie-Material", r.regieMaterial);
+  materialBlock("Material", r.material);
+  regieLeistungBlock();
+  materialBlock("Regie-Material", r.regieMaterial);
+  fahrzeugBlock();
 
   // Unterschrift
-  if (y > H - 160) { doc.addPage(); y = 50; }
+  if (y > H - 200) { doc.addPage(); y = 50; }
   y += 24;
   if (r.signature) {
-    try { doc.addImage(r.signature, "PNG", ML, y, 180, 70); } catch (e) {}
+    try { doc.addImage(r.signature, "PNG", ML, y, 260, 100); } catch (e) {}
   }
-  doc.line(ML, y + 80, ML + 220, y + 80);
+  doc.setDrawColor(0); doc.setLineWidth(0.6);
+  doc.line(ML, y + 110, ML + 300, y + 110);
   doc.setFont("helvetica", "normal"); doc.setFontSize(8);
-  doc.text("Unterschrift des Bauführers/-leiters", ML, y + 92);
+  doc.text("Unterschrift des Bauführers/-leiters", ML, y + 122);
 
   // Foto-Seite(n)
   const fotos = Array.isArray(r.fotos) ? r.fotos.filter(f => f && f.dataUrl) : [];
