@@ -129,9 +129,9 @@ const emptyReport = () => ({
   witterung: { sonne: false, regen: false, frost: false, wind: false, schnee: false },
   temperatur: "",
   arbeiter: {
-    vorarbeiter: { n: "", std: "", namen: "" },
-    facharbeiter: { n: "", std: "", namen: "" },
-    lehrling: { n: "", std: "", namen: "" },
+    vorarbeiter:  { n: "", std: "", namen: "", stundenPro: {} },
+    facharbeiter: { n: "", std: "", namen: "", stundenPro: {} },
+    lehrling:     { n: "", std: "", namen: "", stundenPro: {} },
   },
   fahrzeuge: [],   // [{ id, name, std }]
   leistungsergebnisse: [""],   // Liste von Punkten
@@ -154,19 +154,40 @@ function parseNum(v) {
 function countNamen(s) {
   return (s || "").split(",").map(x => x.trim()).filter(Boolean).length;
 }
+function namesFromString(s) {
+  return (s || "").split(",").map(x => x.trim()).filter(Boolean);
+}
+// Stunden pro Mitarbeiter: nutzt Einzelwerte aus a.stundenPro[name], Fallback auf a.std
+function hoursForName(a, name) {
+  if (a && a.stundenPro && a.stundenPro[name] !== undefined && a.stundenPro[name] !== "") {
+    return parseNum(a.stundenPro[name]);
+  }
+  return parseNum(a && a.std);
+}
+function categoryTotal(a) {
+  if (!a) return 0;
+  const names = namesFromString(a.namen);
+  if (names.length === 0) {
+    // Fallback: alte Berichte ohne Namen, nutze Anzahl × Stunden
+    const std = parseNum(a.std);
+    const n = parseNum(a.n);
+    return std * (n > 0 ? n : 1);
+  }
+  return names.reduce((s, n) => s + hoursForName(a, n), 0);
+}
 function totalHours(arbeiter) {
   return Object.entries(arbeiter).reduce((sum, [key, a]) => {
-    // LKW-Stunden zählen nicht zur Arbeitsleistung ohne Gerät
     if (key === "kraftfahrer") return sum;
-    const std = parseNum(a.std);
-    if (!std) return sum;
-    // Anzahl wird aus den Namen ermittelt; Fallback auf altes Feld a.n
-    const n = countNamen(a.namen) || parseNum(a.n);
-    return sum + std * (n > 0 ? n : 1);
+    return sum + categoryTotal(a);
   }, 0);
 }
 function fmtHours(h) {
-  return Number.isInteger(h) ? String(h) : h.toFixed(1).replace(".", ",");
+  // 2 Nachkommastellen, OHNE Rundung (Hundertstel werden abgeschnitten)
+  if (h == null || isNaN(h)) return "0,00";
+  const sign = h < 0 ? "-" : "";
+  const abs = Math.abs(h);
+  const truncated = Math.floor(abs * 100) / 100;
+  return sign + truncated.toFixed(2).replace(".", ",");
 }
 
 function Logo({ small }) {
@@ -178,6 +199,56 @@ function Logo({ small }) {
 
 // ---------- persistent storage helpers ----------
 const INDEX_KEY = "btb:index";
+
+// ---------- IndexedDB für Original-Fotos (umgeht localStorage 5-MB-Limit) ----------
+const IDB_NAME = "btb-originals";
+const IDB_STORE = "fotos";
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) return reject(new Error("IndexedDB nicht verfügbar"));
+    const req = window.indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSet(key, value) {
+  try {
+    const db = await idbOpen();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).put(value, key);
+      tx.oncomplete = () => { db.close(); resolve(true); };
+      tx.onerror = () => { db.close(); reject(tx.error); };
+    });
+  } catch (e) { console.error("idbSet:", e); return false; }
+}
+async function idbGet(key) {
+  try {
+    const db = await idbOpen();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).get(key);
+      req.onsuccess = () => { db.close(); resolve(req.result || null); };
+      req.onerror = () => { db.close(); reject(req.error); };
+    });
+  } catch (e) { console.error("idbGet:", e); return null; }
+}
+async function idbDelete(key) {
+  try {
+    const db = await idbOpen();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).delete(key);
+      tx.oncomplete = () => { db.close(); resolve(true); };
+      tx.onerror = () => { db.close(); resolve(false); };
+    });
+  } catch (e) { console.error("idbDelete:", e); return false; }
+}
 
 async function loadIndex() {
   try {
@@ -191,10 +262,22 @@ async function saveIndex(idx) {
   try { await window.storage.set(INDEX_KEY, JSON.stringify(idx)); } catch (e) { console.error(e); }
 }
 async function loadReport(id) {
+  let res;
   try {
-    const res = await window.storage.get("btb:rep:" + id);
-    if (!res) return null;
-    const rep = JSON.parse(res.value);
+    res = await window.storage.get("btb:rep:" + id);
+  } catch (e) {
+    console.error("loadReport storage.get failed:", e);
+    return null;
+  }
+  if (!res) return null;
+  let rep;
+  try {
+    rep = JSON.parse(res.value);
+  } catch (e) {
+    console.error("loadReport JSON.parse failed:", e);
+    return null;
+  }
+  try {
     // Migration: leistungsergebnisse von String -> Array
     if (!Array.isArray(rep.leistungsergebnisse)) {
       const str = (rep.leistungsergebnisse || "").trim();
@@ -234,20 +317,82 @@ async function loadReport(id) {
       const { kraftfahrer, ...rest } = rep.arbeiter;
       rep.arbeiter = rest;
     }
-    // Migration: namen-Feld in Arbeiter-Kategorien ergänzen
+    // Migration: namen-Feld und stundenPro in Arbeiter-Kategorien ergänzen
     if (rep.arbeiter) {
       Object.keys(rep.arbeiter).forEach(k => {
-        if (rep.arbeiter[k] && rep.arbeiter[k].namen === undefined) rep.arbeiter[k].namen = "";
+        const a = rep.arbeiter[k];
+        if (a && a.namen === undefined) a.namen = "";
+        if (a && (a.stundenPro === undefined || a.stundenPro === null || typeof a.stundenPro !== "object" || Array.isArray(a.stundenPro))) {
+          a.stundenPro = {};
+        }
       });
     }
+    // Original-Fotos aus IDB nachladen (für späteren ZIP-Export verfügbar machen)
+    if (Array.isArray(rep.fotos) && rep.fotos.length > 0) {
+      for (const f of rep.fotos) {
+        if (f && f.hasOriginal && !f.originalUrl) {
+          try {
+            const orig = await idbGet("orig:" + rep.id + ":" + f.id);
+            if (orig) f.originalUrl = orig;
+          } catch (e) { console.error("idbGet orig:", e); }
+        }
+      }
+    }
     return rep;
-  } catch { return null; }
+  } catch (e) {
+    console.error("loadReport migration failed:", e);
+    return rep; // Trotzdem zurückgeben, damit der Bericht öffnet
+  }
 }
 async function saveReport(rep) {
-  try { await window.storage.set("btb:rep:" + rep.id, JSON.stringify(rep)); } catch (e) { console.error(e); }
+  // Original-Fotos in IndexedDB auslagern, damit der Bericht klein bleibt.
+  // Im Bericht-JSON nur die kleine Vorschau (dataUrl) + Metadaten.
+  const fotosSchlank = [];
+  if (Array.isArray(rep.fotos)) {
+    for (const f of rep.fotos) {
+      if (!f) continue;
+      const copy = { ...f };
+      if (copy.originalUrl) {
+        // Original in IDB, nur Flag im Bericht
+        try {
+          await idbSet("orig:" + rep.id + ":" + copy.id, copy.originalUrl);
+          copy.hasOriginal = true;
+        } catch (e) { console.error("idbSet failed", e); }
+        delete copy.originalUrl; // raus aus Bericht-JSON
+      }
+      fotosSchlank.push(copy);
+    }
+  }
+  const lean = { ...rep, fotos: fotosSchlank };
+  try {
+    await window.storage.set("btb:rep:" + rep.id, JSON.stringify(lean));
+    return { ok: true };
+  } catch (e) {
+    console.error("saveReport failed:", e);
+    // Quota-Fehler: ohne Vorschau-Foto-DataURL versuchen (extrem-Fallback)
+    return { ok: false, error: e && e.name === "QuotaExceededError" ? "quota" : "other" };
+  }
 }
 async function deleteReport(id) {
   try { await window.storage.delete("btb:rep:" + id); } catch (e) { console.error(e); }
+  // zugehörige Originale aus IDB aufräumen
+  try {
+    const db = await idbOpen();
+    await new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      const store = tx.objectStore(IDB_STORE);
+      const req = store.openCursor();
+      req.onsuccess = () => {
+        const c = req.result;
+        if (c) {
+          if (String(c.key).startsWith("orig:" + id + ":")) c.delete();
+          c.continue();
+        }
+      };
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); resolve(); };
+    });
+  } catch (e) { console.error("cleanup originals:", e); }
 }
 
 // ============================================================
@@ -492,7 +637,7 @@ function FahrzeugList({ items, onChange }) {
     const n = parseFloat(String(it.std || "").replace(",", "."));
     return s + (isNaN(n) ? 0 : n);
   }, 0);
-  const fmt = (h) => Number.isInteger(h) ? String(h) : h.toFixed(1).replace(".", ",");
+  const fmt = fmtHours;
 
   return (
     <div>
@@ -549,7 +694,7 @@ function RegieLeistungList({ items, onChange }) {
     const std = parse(it.stunden); if (!std) return s;
     const p = parse(it.personen); return s + std * (p > 0 ? p : 1);
   }, 0);
-  const fmt = (h) => Number.isInteger(h) ? String(h) : h.toFixed(1).replace(".", ",");
+  const fmt = fmtHours;
 
   return (
     <div>
@@ -712,6 +857,7 @@ function PhotoUpload({ fotos, onChange }) {
 // Liefert einen kommagetrennten String an onChange (kompatibel mit Datenmodell).
 function MultiSelectPills({ value, onChange, options, label }) {
   const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
   const selected = (value || "").split(",").map(s => s.trim()).filter(Boolean);
   const isSelected = (name) => selected.includes(name);
   const toggle = (name) => {
@@ -720,8 +866,22 @@ function MultiSelectPills({ value, onChange, options, label }) {
     onChange(next.join(", "));
   };
   const clear = () => onChange("");
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocPointer = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocPointer);
+    document.addEventListener("touchstart", onDocPointer);
+    return () => {
+      document.removeEventListener("mousedown", onDocPointer);
+      document.removeEventListener("touchstart", onDocPointer);
+    };
+  }, [open]);
+
   return (
-    <div>
+    <div ref={wrapRef}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8, minHeight: 30 }}>
         {selected.length === 0 ? (
           <span style={{ color: "#9a9b89", fontSize: 14, fontStyle: "italic", padding: "6px 0" }}>
@@ -791,6 +951,24 @@ function NativeSelect({ value, onChange, options, placeholder }) {
       <option value="">{placeholder || "Bitte wählen…"}</option>
       {options.map(o => <option key={o} value={o}>{o}</option>)}
     </select>
+  );
+}
+
+// Bulk-Stunden-Setzer: Eingabe + Knopf, der alle Stunden einer Kategorie überschreibt
+function BulkStundenSetzer({ onSet }) {
+  const [val, setVal] = useState("");
+  const apply = () => { if (val !== "") onSet(val); };
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 12px", background: "#f3f7ee", border: "1px dashed " + GREEN, borderRadius: 10, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 13, color: DARKGREEN, fontWeight: 700 }}>Alle gleich:</span>
+      <input inputMode="decimal" value={val} onChange={e => setVal(e.target.value)} placeholder="z. B. 8"
+        style={{ ...inputStyle, padding: "8px 10px", textAlign: "center", fontSize: 15, width: 80, flex: "0 0 auto" }} />
+      <span style={{ fontSize: 13, color: "#6b6c5c" }}>Std.</span>
+      <button onClick={apply}
+        style={{ ...btnGhost, padding: "8px 14px", borderColor: GREEN, color: DARKGREEN, fontSize: 14 }}>
+        Auf alle setzen
+      </button>
+    </div>
   );
 }
 
@@ -999,15 +1177,26 @@ function Editor({ report, onChange, onBack, onSave, onExport, existingFolders })
         <Field label="Anzahl der beschäftigten Arbeiter">
           <div style={{ display: "grid", gap: 14 }}>
             {arbRows.map(([key, lbl, opts, mode]) => {
-              const a = r.arbeiter[key] || { n: "", std: "", namen: "" };
+              const a = r.arbeiter[key] || { n: "", std: "", namen: "", stundenPro: {} };
               const selectedNames = (a.namen || "").split(",").map(s => s.trim()).filter(Boolean);
               const autoCount = selectedNames.length;
+              const catSum = categoryTotal(a);
+              const setStundenPro = (name, val) => {
+                const newSP = { ...(a.stundenPro || {}), [name]: val };
+                set({ arbeiter: { ...r.arbeiter, [key]: { ...a, stundenPro: newSP } } });
+              };
+              const setAllStunden = (val) => {
+                const newSP = {};
+                selectedNames.forEach(n => { newSP[n] = val; });
+                set({ arbeiter: { ...r.arbeiter, [key]: { ...a, stundenPro: newSP, std: val } } });
+              };
               return (
                 <div key={key} style={{ border: "2px solid #c9cabb", borderRadius: 14, background: "#fff", padding: 14 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
                     <div style={{ fontWeight: 700, fontSize: 16, color: DARKGREEN }}>{lbl}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 14, color: "#6b6c5c" }}>
                       <span>Anzahl: <strong style={{ color: INK, fontSize: 16 }}>{autoCount || "—"}</strong></span>
+                      <span>Summe: <strong style={{ color: DARKGREEN, fontSize: 16 }}>{fmtHours(catSum)} Std.</strong></span>
                     </div>
                   </div>
                   {mode === "multi" ? (
@@ -1025,11 +1214,29 @@ function Editor({ report, onChange, onBack, onSave, onExport, existingFolders })
                       placeholder="LKW wählen…"
                     />
                   )}
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
-                    <label style={{ fontSize: 14, color: "#6b6c5c", fontWeight: 600 }}>Stunden:</label>
-                    <input inputMode="decimal" value={a.std} onChange={e => setArb(key, "std", e.target.value)}
-                      style={{ ...inputStyle, padding: "10px 12px", textAlign: "center", fontSize: 16, width: 100, flex: "0 0 auto" }} />
-                  </div>
+                  {/* Stunden pro Person, Bulk-Knopf darunter */}
+                  {selectedNames.length > 0 && (
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {selectedNames.map(n => (
+                          <div key={n} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "#fbfbf4", borderRadius: 10, border: "1px solid #e3e3d4" }}>
+                            <span style={{ flex: 1, fontSize: 15, color: INK, fontWeight: 500 }}>{n}</span>
+                            <input
+                              inputMode="decimal"
+                              value={(a.stundenPro && a.stundenPro[n] !== undefined) ? a.stundenPro[n] : (a.std || "")}
+                              onChange={e => setStundenPro(n, e.target.value)}
+                              placeholder="Std."
+                              style={{ ...inputStyle, padding: "8px 10px", textAlign: "center", fontSize: 15, width: 80, flex: "0 0 auto" }}
+                            />
+                            <span style={{ fontSize: 13, color: "#9a9b89", width: 26 }}>Std.</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ marginTop: 10 }}>
+                        <BulkStundenSetzer onSet={setAllStunden} />
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1039,7 +1246,7 @@ function Editor({ report, onChange, onBack, onSave, onExport, existingFolders })
             </div>
           </div>
           <p style={{ fontSize: 12, color: "#9a9b89", margin: "8px 2px 0" }}>
-            Anzahl wird aus den ausgewählten Namen ermittelt. Stundensumme = Anzahl × Stunden je Kategorie.
+            Stunden können pro Person eingetragen werden. Mit „Alle setzen" lassen sich alle Stunden einer Kategorie auf denselben Wert stellen.
           </p>
         </Field>
 
@@ -1210,6 +1417,14 @@ async function exportPDF(r) {
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
   const ML = 40;
+  // 2 Nachkommastellen, OHNE Rundung (abgeschnitten)
+  const fmt2 = (h) => {
+    if (h == null || isNaN(h)) return "0,00";
+    const sign = h < 0 ? "-" : "";
+    const abs = Math.abs(h);
+    const truncated = Math.floor(abs * 100) / 100;
+    return sign + truncated.toFixed(2).replace(".", ",");
+  };
   // Mehr Platz oben für Logo, damit Trennlinie es nicht durchschneidet.
   // (5 mm zusätzlicher Abstand unter dem Logo)
   let y = 104;
@@ -1274,12 +1489,25 @@ async function exportPDF(r) {
     ["lehrling", "Lehrlinge"],
   ];
   doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+  const parse = (v) => { const n = parseFloat(String(v || "").replace(",", ".")); return isNaN(n) ? 0 : n; };
+  const hoursFor = (a, name) => {
+    if (a && a.stundenPro && a.stundenPro[name] !== undefined && a.stundenPro[name] !== "") return parse(a.stundenPro[name]);
+    return parse(a && a.std);
+  };
   rows.forEach(([k, lbl], i) => {
     const a = r.arbeiter[k] || {};
     const namen = (a.namen || "").trim();
-    const anzAuto = namen ? namen.split(",").map(s => s.trim()).filter(Boolean).length : 0;
-    const anzText = anzAuto > 0 ? String(anzAuto) : (a.n || "—");
-    const nameLines = doc.splitTextToSize(namen || "—", colNamen - 12);
+    const nameArr = namen ? namen.split(",").map(s => s.trim()).filter(Boolean) : [];
+    const anzText = nameArr.length > 0 ? String(nameArr.length) : (a.n || "—");
+    // Namen mit individuellen Stunden zusammensetzen: "Name (8 Std.)"
+    const nameWithHours = nameArr.length > 0
+      ? nameArr.map(n => {
+          const h = hoursFor(a, n);
+          return h > 0 ? `${n} (${fmt2(h)} Std.)` : n;
+        })
+      : [];
+    const nameDisplay = nameWithHours.length > 0 ? nameWithHours.join(", ") : (namen || "—");
+    const nameLines = doc.splitTextToSize(nameDisplay, colNamen - 12);
     const rowH = Math.max(20, nameLines.length * 12 + 8);
     if (y + rowH > H - 60) { doc.addPage(); y = 50; }
     // Zeilen-Hintergrund (zebra)
@@ -1296,7 +1524,12 @@ async function exportPDF(r) {
     doc.setFont("helvetica", "normal"); doc.setFontSize(10);
     doc.text(lbl, xKat + 6, y + 14);
     doc.text(anzText, xAnz + colAnzahl / 2, y + 14, { align: "center" });
-    doc.text(a.std || "—", xStd + colStunden / 2, y + 14, { align: "center" });
+    // Stunden-Spalte: Summe der Kategorie
+    let catSum = 0;
+    if (nameArr.length > 0) nameArr.forEach(n => { catSum += hoursFor(a, n); });
+    else catSum = parse(a.std) * (parse(a.n) > 0 ? parse(a.n) : 1);
+    const catStr = catSum > 0 ? fmt2(catSum) : "—";
+    doc.text(catStr, xStd + colStunden / 2, y + 14, { align: "center" });
     nameLines.forEach((ln, j) => doc.text(ln, xNam + 6, y + 14 + j * 12));
     y += rowH;
   });
@@ -1308,16 +1541,14 @@ async function exportPDF(r) {
   doc.setDrawColor(180); doc.rect(ML, y, TBL_W, 22);
   doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(62, 122, 40);
   doc.text("Arbeitsleistung ohne Gerät", xKat + 6, y + 15);
-  // Gesamtstunden berechnen
-  const parse = (v) => { const n = parseFloat(String(v || "").replace(",", ".")); return isNaN(n) ? 0 : n; };
+  // Gesamtstunden über alle Kategorien
   let total = 0;
   Object.entries(r.arbeiter || {}).forEach(([key, a]) => {
-    const std = parse(a.std); if (!std) return;
-    const anzNamen = (a.namen || "").split(",").map(s => s.trim()).filter(Boolean).length;
-    const n = anzNamen || parse(a.n);
-    total += std * (n > 0 ? n : 1);
+    const namen = (a && a.namen) ? a.namen.split(",").map(s => s.trim()).filter(Boolean) : [];
+    if (namen.length > 0) namen.forEach(n => { total += hoursFor(a, n); });
+    else { const std = parse(a && a.std); total += std * (parse(a && a.n) > 0 ? parse(a.n) : 1); }
   });
-  const totalStr = (Number.isInteger(total) ? String(total) : total.toFixed(1).replace(".", ",")) + " Std.";
+  const totalStr = fmt2(total) + " Std.";
   doc.text(totalStr, xNam + colNamen - 6, y + 15, { align: "right" });
   doc.setTextColor(40, 40, 30);
   y += 30;
@@ -1432,7 +1663,7 @@ async function exportPDF(r) {
     doc.setDrawColor(180); doc.rect(ML, y, tblW, 20);
     doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(138, 90, 28);
     doc.text("Gerätestunden gesamt", ML + 5, y + 13);
-    const totalFzStr = (Number.isInteger(totalFz) ? String(totalFz) : totalFz.toFixed(1).replace(".", ",")) + " Std.";
+    const totalFzStr = fmt2(totalFz) + " Std.";
     doc.text(totalFzStr, ML + tblW - 6, y + 13, { align: "right" });
     doc.setTextColor(40, 40, 30);
     y += 26;
@@ -1488,7 +1719,7 @@ async function exportPDF(r) {
     doc.setDrawColor(180); doc.rect(ML, y, tblW, 20);
     doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(62, 122, 40);
     doc.text("Regie-Stunden gesamt (zusätzlich)", ML + 5, y + 13);
-    const totalRegieStr = (Number.isInteger(totalRegie) ? String(totalRegie) : totalRegie.toFixed(1).replace(".", ",")) + " Std.";
+    const totalRegieStr = fmt2(totalRegie) + " Std.";
     doc.text(totalRegieStr, ML + tblW - 6, y + 13, { align: "right" });
     doc.setTextColor(40, 40, 30);
     y += 26;
@@ -1644,8 +1875,18 @@ export default function App() {
   const openFolder = (name) => { setCurrentFolder(name); setView("list"); };
 
   const openReport = async (id) => {
-    const rep = await loadReport(id);
-    if (rep) { setCurrent(rep); setView("edit"); }
+    try {
+      const rep = await loadReport(id);
+      if (rep) {
+        setCurrent(rep);
+        setView("edit");
+      } else {
+        showToast("Bericht konnte nicht geöffnet werden");
+      }
+    } catch (e) {
+      console.error("openReport failed:", e);
+      showToast("Fehler beim Öffnen – siehe Konsole");
+    }
   };
   // Neuer Bericht: optional mit vorausgefülltem Bauvorhaben (aus Ordner)
   const newReport = (presetBauvorhaben) => {
@@ -1657,7 +1898,13 @@ export default function App() {
 
   const persist = useCallback(async (rep) => {
     const toStore = { ...rep, updatedAt: Date.now() };
-    await saveReport(toStore);
+    const result = await saveReport(toStore);
+    if (!result || !result.ok) {
+      // Speicherfehler nach oben durchreichen
+      const err = new Error("save_failed");
+      err.reason = result && result.error;
+      throw err;
+    }
     const meta = { id: toStore.id, bauvorhaben: toStore.bauvorhaben, datum: toStore.datum, bauführer: toStore.bauführer, updatedAt: toStore.updatedAt };
     const idx = await loadIndex();
     const without = idx.filter(i => i.id !== meta.id);
@@ -1668,16 +1915,34 @@ export default function App() {
   }, []);
 
   const handleSave = async () => {
-    const saved = await persist(current);
-    setCurrent(saved);
-    setCurrentFolder(folderName(saved.bauvorhaben));
-    showToast("Bericht gespeichert ✓");
+    try {
+      const saved = await persist(current);
+      setCurrent(saved);
+      setCurrentFolder(folderName(saved.bauvorhaben));
+      showToast("Bericht gespeichert ✓");
+    } catch (e) {
+      console.error(e);
+      if (e && e.reason === "quota") {
+        showToast("Speicher voll – bitte Fotos verkleinern oder alte Berichte löschen");
+      } else {
+        showToast("Speichern fehlgeschlagen – siehe Konsole");
+      }
+    }
   };
   const handleExport = async () => {
     // Erst speichern (offline-tauglich), dann Export versuchen.
-    const saved = await persist(current);
-    setCurrent(saved);
-    setCurrentFolder(folderName(saved.bauvorhaben));
+    let saved;
+    try {
+      saved = await persist(current);
+      setCurrent(saved);
+      setCurrentFolder(folderName(saved.bauvorhaben));
+    } catch (e) {
+      console.error(e);
+      showToast(e && e.reason === "quota"
+        ? "Speicher voll – Bericht konnte nicht gesichert werden"
+        : "Speichern fehlgeschlagen");
+      return;
+    }
     const hasFotos = Array.isArray(saved.fotos) && saved.fotos.length > 0;
     showToast(hasFotos ? "ZIP wird erstellt (PDF + Fotos)…" : "PDF wird erstellt…");
     try {
