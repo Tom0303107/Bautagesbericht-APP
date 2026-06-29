@@ -200,6 +200,27 @@ function Logo({ small }) {
 // ---------- persistent storage helpers ----------
 const INDEX_KEY = "btb:index";
 
+// ---------- localStorage-Wrapper mit derselben API wie window.storage ----------
+// Echte Browser-API ist localStorage; wir verpacken sie in dieselbe async-Signatur,
+// damit der restliche Code unverändert läuft.
+const storage = {
+  async get(key) {
+    try {
+      const v = window.localStorage.getItem(key);
+      return v === null ? null : { value: v };
+    } catch (e) { console.error("storage.get:", e); return null; }
+  },
+  async set(key, value) {
+    // wirft bei Quota-Überschreitung, das ist gewollt (oben gefangen)
+    window.localStorage.setItem(key, value);
+    return true;
+  },
+  async delete(key) {
+    try { window.localStorage.removeItem(key); return true; }
+    catch (e) { console.error("storage.delete:", e); return false; }
+  },
+};
+
 // ---------- IndexedDB für Original-Fotos (umgeht localStorage 5-MB-Limit) ----------
 const IDB_NAME = "btb-originals";
 const IDB_STORE = "fotos";
@@ -252,19 +273,19 @@ async function idbDelete(key) {
 
 async function loadIndex() {
   try {
-    const res = await window.storage.get(INDEX_KEY);
+    const res = await storage.get(INDEX_KEY);
     return res ? JSON.parse(res.value) : [];
   } catch {
     return [];
   }
 }
 async function saveIndex(idx) {
-  try { await window.storage.set(INDEX_KEY, JSON.stringify(idx)); } catch (e) { console.error(e); }
+  try { await storage.set(INDEX_KEY, JSON.stringify(idx)); } catch (e) { console.error(e); }
 }
 async function loadReport(id) {
   let res;
   try {
-    res = await window.storage.get("btb:rep:" + id);
+    res = await storage.get("btb:rep:" + id);
   } catch (e) {
     console.error("loadReport storage.get failed:", e);
     return null;
@@ -372,7 +393,7 @@ async function saveReport(rep) {
 
   // Versuch 1: ganz normal in localStorage
   try {
-    await window.storage.set("btb:rep:" + rep.id, JSON.stringify(lean));
+    await storage.set("btb:rep:" + rep.id, JSON.stringify(lean));
     return { ok: true };
   } catch (e1) {
     console.error("saveReport try1 failed:", e1);
@@ -396,7 +417,7 @@ async function saveReport(rep) {
           fotosUltraLean.push(copy);
         }
         const ultraLean = { ...lean, fotos: fotosUltraLean };
-        await window.storage.set("btb:rep:" + rep.id, JSON.stringify(ultraLean));
+        await storage.set("btb:rep:" + rep.id, JSON.stringify(ultraLean));
         return { ok: true };
       } catch (e2) {
         console.error("saveReport try2 failed:", e2);
@@ -411,7 +432,7 @@ async function saveReport(rep) {
   }
 }
 async function deleteReport(id) {
-  try { await window.storage.delete("btb:rep:" + id); } catch (e) { console.error(e); }
+  try { await storage.delete("btb:rep:" + id); } catch (e) { console.error(e); }
   // zugehörige Originale aus IDB aufräumen
   try {
     const db = await idbOpen();
