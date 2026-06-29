@@ -1152,7 +1152,7 @@ function BauvorhabenAutocomplete({ value, onChange, suggestions }) {
   );
 }
 
-function Editor({ report, onChange, onBack, onSave, onExport, existingFolders }) {
+function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingFolders }) {
   const r = report;
   const set = (patch) => onChange({ ...r, ...patch });
   const setArb = (key, sub, val) => set({ arbeiter: { ...r.arbeiter, [key]: { ...r.arbeiter[key], [sub]: val } } });
@@ -1167,11 +1167,15 @@ function Editor({ report, onChange, onBack, onSave, onExport, existingFolders })
   return (
     <div style={{ paddingBottom: 120 }}>
       {/* top bar */}
-      <div style={{ position: "sticky", top: 0, zIndex: 10, background: "#fbfbf4", borderBottom: "2px solid #e3e3d4", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ position: "sticky", top: 0, zIndex: 10, background: "#fbfbf4", borderBottom: "2px solid #e3e3d4", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <button onClick={onBack} style={btnGhost}><ChevronLeft size={20} /> Zurück</button>
         <div style={{ flex: 1 }} />
         <button onClick={onSave} style={{ ...btnGhost, background: GREEN, color: "#fff", borderColor: GREEN, padding: "12px 22px", fontSize: 16 }}>
           <Save size={18} /> Speichern
+        </button>
+        <button onClick={onShare} style={{ ...btnGhost, background: "#0078d4", color: "#fff", borderColor: "#0078d4", padding: "12px 18px", fontSize: 16 }}
+          title="Bericht über das Teilen-Menü an OneDrive senden">
+          <Share2 size={18} /> An OneDrive
         </button>
         <button onClick={onExport} style={{ ...btnGhost, borderColor: DARKGREEN, color: DARKGREEN, padding: "12px 18px", fontSize: 16 }}>
           <Download size={18} /> PDF
@@ -1337,7 +1341,7 @@ function Editor({ report, onChange, onBack, onSave, onExport, existingFolders })
 // ============================================================
 // Folder list view (Baustellen)
 // ============================================================
-function FolderList({ folders, onOpenFolder, onNew, onDeleteFolder }) {
+function FolderList({ folders, onOpenFolder, onNew, onDeleteFolder, onOpenAll }) {
   return (
     <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 18px 120px" }}>
       <div style={{ display: "flex", alignItems: "flex-end", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
@@ -1351,9 +1355,14 @@ function FolderList({ folders, onOpenFolder, onNew, onDeleteFolder }) {
             </a>
           </div>
         </div>
-        <button onClick={onNew} style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "16px 24px", borderRadius: 14, border: "none", background: GREEN, color: "#fff", fontSize: 18, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 14px rgba(91,168,58,.35)" }}>
-          <Plus size={24} /> Neuer Bericht
-        </button>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={onOpenAll} style={{ ...btnGhost, padding: "14px 18px", fontSize: 15, borderColor: DARKGREEN, color: DARKGREEN }} title="Alle Berichte aller Baustellen anzeigen (Admin-Übersicht)">
+            <FileText size={20} /> Alle Berichte
+          </button>
+          <button onClick={onNew} style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "16px 24px", borderRadius: 14, border: "none", background: GREEN, color: "#fff", fontSize: 18, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 14px rgba(91,168,58,.35)" }}>
+            <Plus size={24} /> Neuer Bericht
+          </button>
+        </div>
       </div>
 
       <div style={{ marginTop: 28 }}>
@@ -1392,6 +1401,64 @@ function FolderList({ folders, onOpenFolder, onNew, onDeleteFolder }) {
 // ============================================================
 // List view (Berichte einer Baustelle)
 // ============================================================
+function AllReports({ items, onOpen, onDelete, onBack }) {
+  const [q, setQ] = useState("");
+  const norm = (s) => (s || "").toString().toLowerCase();
+  const filtered = items.filter(it => {
+    if (!q.trim()) return true;
+    const hay = norm(it.bauvorhaben) + " " + norm(it.bauführer) + " " + norm(it.datum);
+    return hay.includes(norm(q));
+  });
+  return (
+    <div style={{ maxWidth: 960, margin: "0 auto", padding: "28px 18px 120px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+        <button onClick={onBack} style={btnGhost}><ChevronLeft size={20} /> Zurück</button>
+        <div style={{ flex: 1 }}>
+          <h1 style={{ fontFamily: "Oswald, sans-serif", fontSize: 30, color: INK, margin: 0, textTransform: "uppercase", letterSpacing: 1 }}>Alle Berichte</h1>
+          <p style={{ margin: "4px 0 0", color: "#8a8b79", fontSize: 14 }}>
+            {items.length} {items.length === 1 ? "Bericht" : "Berichte"} insgesamt auf diesem Gerät
+          </p>
+        </div>
+      </div>
+      <div style={{ marginBottom: 14 }}>
+        <input
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Suchen nach Baustelle, Bauführer, Datum…"
+          style={{ ...inputStyle, fontSize: 16, padding: "12px 14px" }}
+        />
+      </div>
+      {filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "60px 20px", color: "#9a9b89" }}>
+          <FileText size={48} style={{ opacity: .4 }} />
+          <p style={{ fontSize: 16, marginTop: 12 }}>{q.trim() ? "Kein Treffer für die Suche." : "Noch keine Berichte gespeichert."}</p>
+        </div>
+      )}
+      {filtered.map(it => (
+        <div key={it.id} onClick={() => onOpen(it.id)} style={{
+          display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", marginBottom: 10,
+          background: "#fff", border: "2px solid #e3e3d4", borderRadius: 14, cursor: "pointer",
+        }}>
+          <div style={{ width: 44, height: 44, borderRadius: 10, background: "#eef7e6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <FileText size={22} color={GREEN} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {it.bauvorhaben || "Ohne Baustelle"}
+            </div>
+            <div style={{ fontSize: 13, color: "#8a8b79", marginTop: 2 }}>
+              {it.datum || "—"}{it.bauführer ? " · " + it.bauführer : ""}
+            </div>
+          </div>
+          <button onClick={(e) => { e.stopPropagation(); onDelete(it.id); }} style={{ ...btnGhost, padding: 10, borderColor: "#e0c4c4", color: "#b04a4a" }} title="Bericht löschen">
+            <Trash2 size={18} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ReportList({ folderName, items, onOpen, onNew, onDelete, onDuplicate, onBack }) {
   return (
     <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 18px 120px" }}>
@@ -1832,61 +1899,70 @@ async function exportPDF(r) {
 
   const sanitize = (s) => (s || "").replace(/[^a-zA-ZäöüÄÖÜß0-9-]+/g, "_").replace(/^_|_$/g, "");
   const baustelle = sanitize(r.bauvorhaben) || "Bericht";
-  const pdfName = `${baustelle}_${r.datum}.pdf`;
+  const bauf      = sanitize(r.bauführer) || "ohneBauführer";
+  // Sortierfreundlich: Datum zuerst (YYYY-MM-DD), dann Baustelle, dann Bauführer
+  const baseName  = `${r.datum}__${baustelle}__${bauf}`;
+  const pdfName   = `${baseName}.pdf`;
   const fotosVoll = Array.isArray(r.fotos) ? r.fotos.filter(f => f && f.originalUrl) : [];
 
-  // Wenn keine Fotos: einfach PDF speichern wie bisher
+  // Wenn keine Fotos: nur PDF
   if (fotosVoll.length === 0) {
-    try {
-      doc.save(pdfName);
-    } catch (e) {
-      try {
-        const url = doc.output("bloburl");
-        window.open(url, "_blank");
-      } catch (e2) {
-        throw new Error("PDF konnte nicht ausgegeben werden");
-      }
-    }
-    return;
+    const pdfBlob = doc.output("blob");
+    return { blob: pdfBlob, fileName: pdfName, mime: "application/pdf" };
   }
 
-  // Mit Fotos: ZIP mit PDF + Original-Bildern erstellen
+  // Mit Fotos: ZIP mit PDF + Original-Bildern
   await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", hasJSZip);
   const zip = new window.JSZip();
-  // PDF als ArrayBuffer in das ZIP packen
   const pdfBlob = doc.output("blob");
   zip.file(pdfName, pdfBlob);
-  // Fotos in einen Unterordner "Fotos/"
   const fotosOrdner = zip.folder("Fotos");
   for (let i = 0; i < fotosVoll.length; i++) {
     const foto = fotosVoll[i];
-    // DataURL nach Blob/ArrayBuffer wandeln
     const dataUrl = foto.originalUrl;
     const comma = dataUrl.indexOf(",");
-    const meta = dataUrl.substring(5, comma); // z. B. "image/jpeg;base64"
+    const meta = dataUrl.substring(5, comma);
     const isBase64 = meta.includes("base64");
     const mime = meta.split(";")[0] || "image/jpeg";
-    // Endung aus Mime ableiten
     const ext = mime.includes("png") ? "png" : (mime.includes("heic") ? "heic" : "jpg");
     const data = dataUrl.substring(comma + 1);
-    // Dateiname: laufende Nummer + Beschreibung (sanitized)
     const num = String(i + 1).padStart(2, "0");
     const kommentar = sanitize(foto.kommentar || "").substring(0, 60);
-    const fname = `${baustelle}_${r.datum}_${num}${kommentar ? "_" + kommentar : ""}.${ext}`;
+    const fname = `${baseName}_${num}${kommentar ? "_" + kommentar : ""}.${ext}`;
     fotosOrdner.file(fname, data, { base64: isBase64 });
   }
-
   const zipBlob = await zip.generateAsync({ type: "blob" });
-  const zipName = `${baustelle}_${r.datum}.zip`;
-  // Download auslösen
-  const url = URL.createObjectURL(zipBlob);
+  return { blob: zipBlob, fileName: `${baseName}.zip`, mime: "application/zip" };
+}
+
+// Lädt einen Blob über einen versteckten Link herunter (Browser-Download).
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
-  a.download = zipName;
+  a.href = url; a.download = fileName;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Versucht, den nativen Teilen-Dialog des Geräts zu öffnen (iOS: "Auf Dateien sichern" / "OneDrive").
+// Falls Web Share nicht unterstützt wird, fällt es auf einen normalen Download zurück.
+async function shareBlob(blob, fileName, title) {
+  try {
+    if (navigator.canShare && typeof File !== "undefined") {
+      const file = new File([blob], fileName, { type: blob.type || "application/octet-stream" });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: title || fileName, text: title || fileName });
+        return { shared: true };
+      }
+    }
+  } catch (e) {
+    // Nutzer hat abgebrochen oder Share nicht erlaubt – auf Download zurückfallen
+    console.warn("share failed, fallback to download:", e);
+  }
+  downloadBlob(blob, fileName);
+  return { shared: false };
 }
 
 // ============================================================
@@ -1990,8 +2066,13 @@ export default function App() {
       }
     }
   };
+  const buildExport = async (saved) => {
+    // Liefert {blob, fileName, mime} oder wirft.
+    return await exportPDF(saved);
+  };
+
   const handleExport = async () => {
-    // Erst speichern (offline-tauglich), dann Export versuchen.
+    // Speichern + Datei normal herunterladen
     let saved;
     try {
       saved = await persist(current);
@@ -2007,11 +2088,41 @@ export default function App() {
     const hasFotos = Array.isArray(saved.fotos) && saved.fotos.length > 0;
     showToast(hasFotos ? "ZIP wird erstellt (PDF + Fotos)…" : "PDF wird erstellt…");
     try {
-      await exportPDF(saved);
+      const out = await buildExport(saved);
+      downloadBlob(out.blob, out.fileName);
       showToast(hasFotos ? "ZIP erstellt ✓" : "PDF erstellt ✓");
     } catch (e) {
       console.error(e);
       showToast("Export benötigt Internet – Bericht ist gespeichert");
+    }
+  };
+
+  // Teilen über das System (iOS-Teilen-Dialog → OneDrive)
+  const handleShare = async () => {
+    let saved;
+    try {
+      saved = await persist(current);
+      setCurrent(saved);
+      setCurrentFolder(folderName(saved.bauvorhaben));
+    } catch (e) {
+      console.error(e);
+      showToast(e && e.reason === "quota"
+        ? "Speicher voll – Bericht konnte nicht gesichert werden"
+        : "Speichern fehlgeschlagen");
+      return;
+    }
+    const hasFotos = Array.isArray(saved.fotos) && saved.fotos.length > 0;
+    showToast(hasFotos ? "Datei wird vorbereitet (PDF + Fotos)…" : "Datei wird vorbereitet…");
+    try {
+      const out = await buildExport(saved);
+      const title = `Bautagesbericht ${saved.bauvorhaben || ""} ${saved.datum || ""}`.trim();
+      const result = await shareBlob(out.blob, out.fileName, title);
+      showToast(result.shared
+        ? "An OneDrive geteilt ✓"
+        : "Teilen nicht verfügbar – heruntergeladen");
+    } catch (e) {
+      console.error(e);
+      showToast("Teilen fehlgeschlagen – siehe Konsole");
     }
   };
   const handleDelete = async (id) => {
@@ -2053,11 +2164,13 @@ export default function App() {
       {loading ? (
         <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", color: "#9a9b89" }}>Lädt…</div>
       ) : view === "folders" ? (
-        <FolderList folders={folders} onOpenFolder={openFolder} onNew={() => newReport()} onDeleteFolder={handleDeleteFolder} />
+        <FolderList folders={folders} onOpenFolder={openFolder} onNew={() => newReport()} onDeleteFolder={handleDeleteFolder} onOpenAll={() => setView("all")} />
+      ) : view === "all" ? (
+        <AllReports items={index} onOpen={openReport} onDelete={handleDelete} onBack={() => setView("folders")} />
       ) : view === "list" ? (
         <ReportList folderName={currentFolder} items={reportsInFolder(currentFolder)} onOpen={openReport} onNew={newReport} onDelete={handleDelete} onDuplicate={handleDuplicate} onBack={() => setView("folders")} />
       ) : (
-        <Editor report={current} onChange={setCurrent} onBack={() => setView(currentFolder ? "list" : "folders")} onSave={handleSave} onExport={handleExport} existingFolders={folders.map(f => f.name).filter(n => n !== FOLDER_FALLBACK)} />
+        <Editor report={current} onChange={setCurrent} onBack={() => setView(currentFolder ? "list" : "folders")} onSave={handleSave} onExport={handleExport} onShare={handleShare} existingFolders={folders.map(f => f.name).filter(n => n !== FOLDER_FALLBACK)} />
       )}
 
       {toast && (
