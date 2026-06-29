@@ -327,7 +327,7 @@ async function loadReport(id) {
         }
       });
     }
-    // Original-Fotos aus IDB nachladen (für späteren ZIP-Export verfügbar machen)
+    // Original-Fotos und ggf. ausgelagerte Vorschauen aus IDB nachladen
     if (Array.isArray(rep.fotos) && rep.fotos.length > 0) {
       for (const f of rep.fotos) {
         if (f && f.hasOriginal && !f.originalUrl) {
@@ -335,6 +335,12 @@ async function loadReport(id) {
             const orig = await idbGet("orig:" + rep.id + ":" + f.id);
             if (orig) f.originalUrl = orig;
           } catch (e) { console.error("idbGet orig:", e); }
+        }
+        if (f && f.hasPreview && !f.dataUrl) {
+          try {
+            const prev = await idbGet("preview:" + rep.id + ":" + f.id);
+            if (prev) f.dataUrl = prev;
+          } catch (e) { console.error("idbGet preview:", e); }
         }
       }
     }
@@ -353,24 +359,55 @@ async function saveReport(rep) {
       if (!f) continue;
       const copy = { ...f };
       if (copy.originalUrl) {
-        // Original in IDB, nur Flag im Bericht
         try {
           await idbSet("orig:" + rep.id + ":" + copy.id, copy.originalUrl);
           copy.hasOriginal = true;
-        } catch (e) { console.error("idbSet failed", e); }
-        delete copy.originalUrl; // raus aus Bericht-JSON
+        } catch (e) { console.error("idbSet original failed", e); }
+        delete copy.originalUrl;
       }
       fotosSchlank.push(copy);
     }
   }
   const lean = { ...rep, fotos: fotosSchlank };
+
+  // Versuch 1: ganz normal in localStorage
   try {
     await window.storage.set("btb:rep:" + rep.id, JSON.stringify(lean));
     return { ok: true };
-  } catch (e) {
-    console.error("saveReport failed:", e);
-    // Quota-Fehler: ohne Vorschau-Foto-DataURL versuchen (extrem-Fallback)
-    return { ok: false, error: e && e.name === "QuotaExceededError" ? "quota" : "other" };
+  } catch (e1) {
+    console.error("saveReport try1 failed:", e1);
+    // Versuch 2: Wenn es nach Quota aussieht, auch die Foto-VORSCHAUEN in IDB auslagern.
+    const looksLikeQuota = e1 && (
+      e1.name === "QuotaExceededError" ||
+      (typeof e1.message === "string" && /quota|exceed|storage/i.test(e1.message))
+    );
+    if (looksLikeQuota && fotosSchlank.length > 0) {
+      try {
+        const fotosUltraLean = [];
+        for (const f of fotosSchlank) {
+          const copy = { ...f };
+          if (copy.dataUrl) {
+            try {
+              await idbSet("preview:" + rep.id + ":" + copy.id, copy.dataUrl);
+              copy.hasPreview = true;
+            } catch (e) { console.error("idbSet preview failed", e); }
+            delete copy.dataUrl;
+          }
+          fotosUltraLean.push(copy);
+        }
+        const ultraLean = { ...lean, fotos: fotosUltraLean };
+        await window.storage.set("btb:rep:" + rep.id, JSON.stringify(ultraLean));
+        return { ok: true };
+      } catch (e2) {
+        console.error("saveReport try2 failed:", e2);
+        return { ok: false, error: "quota", detail: e2 && e2.message };
+      }
+    }
+    return {
+      ok: false,
+      error: looksLikeQuota ? "quota" : "other",
+      detail: e1 && (e1.message || e1.name) || String(e1),
+    };
   }
 }
 async function deleteReport(id) {
@@ -385,7 +422,8 @@ async function deleteReport(id) {
       req.onsuccess = () => {
         const c = req.result;
         if (c) {
-          if (String(c.key).startsWith("orig:" + id + ":")) c.delete();
+          const k = String(c.key);
+          if (k.startsWith("orig:" + id + ":") || k.startsWith("preview:" + id + ":")) c.delete();
           c.continue();
         }
       };
@@ -1900,9 +1938,9 @@ export default function App() {
     const toStore = { ...rep, updatedAt: Date.now() };
     const result = await saveReport(toStore);
     if (!result || !result.ok) {
-      // Speicherfehler nach oben durchreichen
       const err = new Error("save_failed");
       err.reason = result && result.error;
+      err.detail = result && result.detail;
       throw err;
     }
     const meta = { id: toStore.id, bauvorhaben: toStore.bauvorhaben, datum: toStore.datum, bauführer: toStore.bauführer, updatedAt: toStore.updatedAt };
@@ -1921,9 +1959,11 @@ export default function App() {
       setCurrentFolder(folderName(saved.bauvorhaben));
       showToast("Bericht gespeichert ✓");
     } catch (e) {
-      console.error(e);
+      console.error("Speicherfehler:", e, "Reason:", e && e.reason, "Detail:", e && e.detail);
       if (e && e.reason === "quota") {
         showToast("Speicher voll – bitte Fotos verkleinern oder alte Berichte löschen");
+      } else if (e && e.detail) {
+        showToast("Speichern fehlgeschlagen: " + String(e.detail).substring(0, 60));
       } else {
         showToast("Speichern fehlgeschlagen – siehe Konsole");
       }
