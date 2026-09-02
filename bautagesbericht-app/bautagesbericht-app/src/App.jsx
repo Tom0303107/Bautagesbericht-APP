@@ -1405,14 +1405,62 @@ function FolderList({ folders, onOpenFolder, onNew, onDeleteFolder, onOpenAll })
 // ============================================================
 // List view (Berichte einer Baustelle)
 // ============================================================
-function AllReports({ items, onOpen, onDelete, onBack }) {
+// Kleine Status-Anzeige für den Upload-Zustand eines Berichts
+function UploadBadge({ meta }) {
+  const uploaded = meta && meta.uploaded;
+  const hasError = meta && meta.uploadError;
+  let bg, color, label;
+  if (uploaded) { bg = "#eef7e6"; color = DARKGREEN; label = "Hochgeladen ✓"; }
+  else if (hasError) { bg = "#fce7e7"; color = "#a1372f"; label = "Upload-Fehler"; }
+  else { bg = "#f0f0e6"; color = "#6b6c5c"; label = "Nicht hochgeladen"; }
+  return (
+    <span style={{
+      display: "inline-block", padding: "3px 10px", borderRadius: 999,
+      background: bg, color: color, fontSize: 12, fontWeight: 700,
+      whiteSpace: "nowrap", marginLeft: 8,
+    }} title={hasError ? meta.uploadError : ""}>
+      {label}
+    </span>
+  );
+}
+function formatUploadedAt(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const pad = (n) => n < 10 ? "0" + n : "" + n;
+  return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function AllReports({ items, onOpen, onDelete, onBack, onRetry }) {
   const [q, setQ] = useState("");
+  const [filterMode, setFilterMode] = useState("all"); // all | uploaded | pending | error
   const norm = (s) => (s || "").toString().toLowerCase();
   const filtered = items.filter(it => {
+    if (filterMode === "uploaded" && !it.uploaded) return false;
+    if (filterMode === "error" && !it.uploadError) return false;
+    if (filterMode === "pending" && (it.uploaded || it.uploadError)) return false;
     if (!q.trim()) return true;
     const hay = norm(it.bauvorhaben) + " " + norm(it.bauführer) + " " + norm(it.datum);
     return hay.includes(norm(q));
   });
+  // Statistik für Anzeige oben
+  const stats = items.reduce((s, it) => {
+    if (it.uploaded) s.uploaded++;
+    else if (it.uploadError) s.error++;
+    else s.pending++;
+    return s;
+  }, { uploaded: 0, error: 0, pending: 0 });
+  const filterBtn = (mode, label, count, bg, col) => (
+    <button onClick={() => setFilterMode(mode)}
+      style={{
+        ...btnGhost,
+        padding: "8px 12px", fontSize: 13, fontWeight: 700,
+        background: filterMode === mode ? bg : "#fff",
+        borderColor: filterMode === mode ? col : "#c9cabb",
+        color: col,
+      }}>
+      {label} ({count})
+    </button>
+  );
   return (
     <div style={{ maxWidth: 960, margin: "0 auto", padding: "28px 18px 120px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
@@ -1424,7 +1472,7 @@ function AllReports({ items, onOpen, onDelete, onBack }) {
           </p>
         </div>
       </div>
-      <div style={{ marginBottom: 14 }}>
+      <div style={{ marginBottom: 12 }}>
         <input
           value={q}
           onChange={e => setQ(e.target.value)}
@@ -1432,10 +1480,16 @@ function AllReports({ items, onOpen, onDelete, onBack }) {
           style={{ ...inputStyle, fontSize: 16, padding: "12px 14px" }}
         />
       </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+        {filterBtn("all",      "Alle",             items.length,   "#eef0e6", INK)}
+        {filterBtn("uploaded", "Hochgeladen",      stats.uploaded, "#eef7e6", DARKGREEN)}
+        {filterBtn("pending",  "Nicht hochgeladen", stats.pending, "#f0f0e6", "#6b6c5c")}
+        {filterBtn("error",    "Fehler",           stats.error,    "#fce7e7", "#a1372f")}
+      </div>
       {filtered.length === 0 && (
         <div style={{ textAlign: "center", padding: "60px 20px", color: "#9a9b89" }}>
           <FileText size={48} style={{ opacity: .4 }} />
-          <p style={{ fontSize: 16, marginTop: 12 }}>{q.trim() ? "Kein Treffer für die Suche." : "Noch keine Berichte gespeichert."}</p>
+          <p style={{ fontSize: 16, marginTop: 12 }}>{q.trim() || filterMode !== "all" ? "Keine passenden Berichte." : "Noch keine Berichte gespeichert."}</p>
         </div>
       )}
       {filtered.map(it => (
@@ -1447,13 +1501,24 @@ function AllReports({ items, onOpen, onDelete, onBack }) {
             <FileText size={22} color={GREEN} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 17, fontWeight: 700, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {it.bauvorhaben || "Ohne Baustelle"}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 17, fontWeight: 700, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {it.bauvorhaben || "Ohne Baustelle"}
+              </span>
+              <UploadBadge meta={it} />
             </div>
             <div style={{ fontSize: 13, color: "#8a8b79", marginTop: 2 }}>
               {it.datum || "—"}{it.bauführer ? " · " + it.bauführer : ""}
+              {it.uploaded && it.uploadedAt ? " · hochgeladen " + formatUploadedAt(it.uploadedAt) : ""}
             </div>
           </div>
+          {onRetry && (it.uploadError || !it.uploaded) && (
+            <button onClick={(e) => { e.stopPropagation(); onRetry(it.id); }}
+              style={{ ...btnGhost, padding: "8px 12px", borderColor: "#0078d4", color: "#0078d4", fontSize: 13, fontWeight: 700 }}
+              title={it.uploadError ? "Erneut hochladen. Letzter Fehler:\n" + it.uploadError : "Bericht in OneDrive hochladen"}>
+              <Share2 size={16} /> Upload
+            </button>
+          )}
           <button onClick={(e) => { e.stopPropagation(); onDelete(it.id); }} style={{ ...btnGhost, padding: 10, borderColor: "#e0c4c4", color: "#b04a4a" }} title="Bericht löschen">
             <Trash2 size={18} />
           </button>
@@ -1493,11 +1558,13 @@ function ReportList({ folderName, items, onOpen, onNew, onDelete, onDuplicate, o
               <FileText size={26} color={GREEN} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 19, fontWeight: 700, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {it.datum}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 19, fontWeight: 700, color: INK }}>{it.datum}</span>
+                <UploadBadge meta={it} />
               </div>
               <div style={{ fontSize: 14, color: "#8a8b79", marginTop: 2 }}>
                 {it.bauführer ? "Bauführer: " + it.bauführer : "Kein Bauführer eingetragen"}
+                {it.uploaded && it.uploadedAt ? " · hochgeladen " + formatUploadedAt(it.uploadedAt) : ""}
               </div>
             </div>
             <button onClick={(e) => { e.stopPropagation(); onDuplicate(it.id); }} style={{ ...btnGhost, padding: 12, borderColor: "#c9cabb", color: DARKGREEN }} title="Als Vorlage duplizieren">
@@ -1903,9 +1970,12 @@ async function exportPDF(r) {
 
   const sanitize = (s) => (s || "").replace(/[^a-zA-ZäöüÄÖÜß0-9-]+/g, "_").replace(/^_|_$/g, "");
   const baustelle = sanitize(r.bauvorhaben) || "Bericht";
-  const bauf      = sanitize(r.bauführer) || "ohneBauführer";
-  // Sortierfreundlich: Datum zuerst (YYYY-MM-DD), dann Baustelle, dann Bauführer
-  const baseName  = `${r.datum}__${baustelle}__${bauf}`;
+  // Datum von YYYY-MM-DD in TT-MM-JJJJ umwandeln (Windows erlaubt keine / im Dateinamen)
+  const datumTMJ = (() => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(r.datum || "");
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : (r.datum || "ohne-Datum");
+  })();
+  const baseName  = `${baustelle}_${datumTMJ}`;
   const pdfName   = `${baseName}.pdf`;
   const fotosVoll = Array.isArray(r.fotos) ? r.fotos.filter(f => f && f.originalUrl) : [];
 
@@ -2017,7 +2087,12 @@ export default function App() {
     })();
   }, []);
 
-  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2200); };
+  const toastTimer = useRef(null);
+  const showToast = (msg, ms) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), ms || 2500);
+  };
 
   // Baustellen-Ordner aus dem Index ableiten
   const FOLDER_FALLBACK = "Ohne Baustelle";
@@ -2072,7 +2147,16 @@ export default function App() {
       err.detail = result && result.detail;
       throw err;
     }
-    const meta = { id: toStore.id, bauvorhaben: toStore.bauvorhaben, datum: toStore.datum, bauführer: toStore.bauführer, updatedAt: toStore.updatedAt };
+    const meta = {
+      id: toStore.id,
+      bauvorhaben: toStore.bauvorhaben,
+      datum: toStore.datum,
+      bauführer: toStore.bauführer,
+      updatedAt: toStore.updatedAt,
+      uploaded: !!toStore.uploaded,
+      uploadedAt: toStore.uploadedAt || 0,
+      uploadError: toStore.uploadError || "",
+    };
     const idx = await loadIndex();
     const without = idx.filter(i => i.id !== meta.id);
     const next = [meta, ...without].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -2090,11 +2174,11 @@ export default function App() {
     } catch (e) {
       console.error("Speicherfehler:", e, "Reason:", e && e.reason, "Detail:", e && e.detail);
       if (e && e.reason === "quota") {
-        showToast("Speicher voll – bitte Fotos verkleinern oder alte Berichte löschen");
+        showToast("Speicher voll – bitte Fotos verkleinern oder alte Berichte löschen", 8000);
       } else if (e && e.detail) {
-        showToast("Speichern fehlgeschlagen: " + String(e.detail).substring(0, 60));
+        showToast("Speichern fehlgeschlagen:\n" + String(e.detail).substring(0, 200), 10000);
       } else {
-        showToast("Speichern fehlgeschlagen – siehe Konsole");
+        showToast("Speichern fehlgeschlagen – siehe Konsole", 6000);
       }
     }
   };
@@ -2158,12 +2242,30 @@ export default function App() {
       showToast("Wird an OneDrive hochgeladen…");
       try {
         await uploadToCloud(out.blob, out.fileName);
+        // Upload-Status im Bericht vermerken (klein, spart Speicher)
+        const stamp = Date.now();
+        const savedUp = { ...saved, uploaded: true, uploadedAt: stamp, uploadedFileName: out.fileName, uploadError: "" };
+        try {
+          await persist(savedUp);
+          setCurrent(savedUp);
+        } catch (e) { console.error("save upload status failed:", e); }
         showToast("An OneDrive hochgeladen ✓");
         return;
       } catch (e) {
         console.error("uploadToCloud failed:", e);
-        // Kein Netz oder Server-Fehler → auf Teilen-Dialog zurückfallen
-        showToast("Upload fehlgeschlagen, öffne Teilen-Dialog…");
+        const msg = (e && e.message) ? String(e.message) : "unbekannter Fehler";
+        // Fehler-Status im Bericht speichern
+        try {
+          const savedErr = { ...saved, uploaded: false, uploadError: msg.substring(0, 300), uploadTriedAt: Date.now() };
+          await persist(savedErr);
+          setCurrent(savedErr);
+        } catch (e2) { console.error("save upload error failed:", e2); }
+        showToast(
+          "Upload fehlgeschlagen:\n" + msg.substring(0, 200) +
+          "\n\n(Tippen zum Schließen)",
+          12000
+        );
+        await new Promise(r => setTimeout(r, 1500));
       }
     }
     // Weg 2 (Fallback): iOS-Teilen-Dialog
@@ -2181,6 +2283,38 @@ export default function App() {
     const idx = (await loadIndex()).filter(i => i.id !== id);
     await saveIndex(idx); setIndex(idx);
     showToast("Bericht gelöscht");
+  };
+
+  // Erneuter Upload eines bestehenden Berichts (aus der Übersicht heraus)
+  const handleRetryUpload = async (id) => {
+    const rep = await loadReport(id);
+    if (!rep) { showToast("Bericht nicht gefunden"); return; }
+    let out;
+    try {
+      showToast("Datei wird vorbereitet…");
+      out = await buildExport(rep);
+    } catch (e) {
+      console.error(e);
+      showToast("Datei konnte nicht erzeugt werden");
+      return;
+    }
+    if (!UPLOAD_URL) { showToast("Keine Upload-URL hinterlegt"); return; }
+    showToast("Wird an OneDrive hochgeladen…");
+    try {
+      await uploadToCloud(out.blob, out.fileName);
+      const stamp = Date.now();
+      const savedUp = { ...rep, uploaded: true, uploadedAt: stamp, uploadedFileName: out.fileName, uploadError: "" };
+      await persist(savedUp);
+      showToast("An OneDrive hochgeladen ✓");
+    } catch (e) {
+      console.error("retry uploadToCloud failed:", e);
+      const msg = (e && e.message) ? String(e.message) : "unbekannter Fehler";
+      try {
+        const savedErr = { ...rep, uploaded: false, uploadError: msg.substring(0, 300), uploadTriedAt: Date.now() };
+        await persist(savedErr);
+      } catch (e2) { console.error(e2); }
+      showToast("Upload fehlgeschlagen:\n" + msg.substring(0, 200) + "\n\n(Tippen zum Schließen)", 12000);
+    }
   };
   const handleDuplicate = async (id) => {
     const rep = await loadReport(id);
@@ -2217,7 +2351,7 @@ export default function App() {
       ) : view === "folders" ? (
         <FolderList folders={folders} onOpenFolder={openFolder} onNew={() => newReport()} onDeleteFolder={handleDeleteFolder} onOpenAll={() => setView("all")} />
       ) : view === "all" ? (
-        <AllReports items={index} onOpen={openReport} onDelete={handleDelete} onBack={() => setView("folders")} />
+        <AllReports items={index} onOpen={openReport} onDelete={handleDelete} onBack={() => setView("folders")} onRetry={handleRetryUpload} />
       ) : view === "list" ? (
         <ReportList folderName={currentFolder} items={reportsInFolder(currentFolder)} onOpen={openReport} onNew={newReport} onDelete={handleDelete} onDuplicate={handleDuplicate} onBack={() => setView("folders")} />
       ) : (
@@ -2225,7 +2359,18 @@ export default function App() {
       )}
 
       {toast && (
-        <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", background: INK, color: "#fff", padding: "14px 26px", borderRadius: 30, fontSize: 16, fontWeight: 600, boxShadow: "0 6px 20px rgba(0,0,0,.25)", zIndex: 50 }}>
+        <div
+          onClick={() => setToast("")}
+          style={{
+            position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)",
+            maxWidth: "92vw",
+            background: INK, color: "#fff",
+            padding: "14px 22px", borderRadius: 16,
+            fontSize: 15, fontWeight: 600, lineHeight: 1.35,
+            boxShadow: "0 6px 20px rgba(0,0,0,.25)", zIndex: 50,
+            cursor: "pointer", whiteSpace: "pre-wrap", wordBreak: "break-word",
+          }}
+          title="Tippen zum Schließen">
           {toast}
         </div>
       )}
