@@ -1406,6 +1406,50 @@ function FolderList({ folders, onOpenFolder, onNew, onDeleteFolder, onOpenAll })
 // List view (Berichte einer Baustelle)
 // ============================================================
 // Kleine Status-Anzeige für den Upload-Zustand eines Berichts
+// Fortschrittsanzeige beim Erzeugen der PDF/ZIP + Upload
+// Erwartet ein "progress"-Objekt oder null (dann versteckt).
+// { step: "…", percent: 42, note: "optional" }
+function ProgressOverlay({ progress }) {
+  if (!progress) return null;
+  const pct = Math.max(0, Math.min(100, Math.round(progress.percent || 0)));
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(31,36,23,.55)",
+      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60,
+      padding: 20,
+    }}>
+      <div style={{
+        background: "#fff", borderRadius: 18, padding: "24px 26px",
+        boxShadow: "0 10px 30px rgba(0,0,0,.35)", width: "min(420px, 92vw)",
+        border: "2px solid " + GREEN,
+      }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: DARKGREEN, marginBottom: 6 }}>
+          {progress.step || "Bitte warten…"}
+        </div>
+        {progress.note && (
+          <div style={{ fontSize: 13, color: "#6b6c5c", marginBottom: 14 }}>
+            {progress.note}
+          </div>
+        )}
+        <div style={{
+          width: "100%", height: 14, borderRadius: 999,
+          background: "#e8ead8", overflow: "hidden", marginTop: 4, marginBottom: 8,
+        }}>
+          <div style={{
+            width: pct + "%", height: "100%",
+            background: `linear-gradient(90deg, ${GREEN}, ${DARKGREEN})`,
+            transition: "width .3s ease",
+          }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6b6c5c", fontWeight: 600 }}>
+          <span>{pct}%</span>
+          <span>{progress.hint || ""}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function UploadBadge({ meta }) {
   const uploaded = meta && meta.uploaded;
   const hasError = meta && meta.uploadError;
@@ -1607,8 +1651,13 @@ function loadScript(src, checkFn) {
 const hasJsPDF = () => !!(window.jspdf && window.jspdf.jsPDF);
 const hasJSZip = () => !!window.JSZip;
 
-async function exportPDF(r) {
+async function exportPDF(r, onProgress) {
+  const prog = (step, percent, note, hint) => {
+    if (typeof onProgress === "function") onProgress({ step, percent, note, hint });
+  };
+  prog("Bericht wird vorbereitet…", 3);
   await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js", hasJsPDF);
+  prog("PDF wird erstellt…", 8);
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
@@ -1645,7 +1694,12 @@ async function exportPDF(r) {
     y += Math.max(18, lines.length * 14 + 4);
   };
 
-  line("Datum:", r.datum);
+  // Datum im deutschen Format TT.MM.JJJJ ausgeben
+  const datumDeutsch = (() => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(r.datum || "");
+    return m ? `${m[3]}.${m[2]}.${m[1]}` : (r.datum || "");
+  })();
+  line("Datum:", datumDeutsch);
   line("Bauvorhaben:", r.bauvorhaben);
   if (r.techniker) line("Techniker:", r.techniker);
   line("Bauführer:", r.bauführer);
@@ -1941,30 +1995,59 @@ async function exportPDF(r) {
   // Foto-Seite(n)
   const fotos = Array.isArray(r.fotos) ? r.fotos.filter(f => f && f.dataUrl) : [];
   if (fotos.length > 0) {
+    prog("Fotos werden analysiert…", 30, `${fotos.length} Foto${fotos.length === 1 ? "" : "s"} werden verarbeitet`);
+    // Vorab die Bildmaße aller Fotos laden (asynchron, damit wir Seitenverhältnis kennen)
+    const imgDims = await Promise.all(fotos.map(f => new Promise((resolve) => {
+      try {
+        const img = new Image();
+        img.onload = () => resolve({ w: img.naturalWidth || 4, h: img.naturalHeight || 3 });
+        img.onerror = () => resolve({ w: 4, h: 3 });
+        img.src = f.dataUrl;
+      } catch { resolve({ w: 4, h: 3 }); }
+    })));
+
     doc.addPage();
     let py = 50;
     doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(40, 40, 30);
     doc.text("Baufortschritt – Fotos", ML, py); py += 20;
     doc.setDrawColor(200); doc.line(ML, py, W - ML, py); py += 16;
 
-    // 2 Spalten Layout
+    // 2 Spalten Layout: einheitliche Zellhöhe, aber Bild wird proportional eingepasst
     const gap = 16;
     const cellW = (W - 2 * ML - gap) / 2;
-    const imgH = cellW * 0.72;
-    const cellH = imgH + 36; // Bild + Beschriftung
+    const maxImgH = cellW * 0.9;   // etwas mehr Platz nach unten, damit Hochkant-Fotos gut wirken
+    const cellH = maxImgH + 36;    // Bild + Beschriftung
+
+    // Fotos einbetten: 35% - 70% Fortschritt (linear pro Foto)
     for (let i = 0; i < fotos.length; i++) {
       const col = i % 2;
       if (col === 0 && py + cellH > H - 40) { doc.addPage(); py = 50; }
       const x = ML + col * (cellW + gap);
-      try { doc.addImage(fotos[i].dataUrl, "JPEG", x, py, cellW, imgH); } catch (e) {}
-      doc.setDrawColor(220); doc.rect(x, py, cellW, imgH);
+      const dim = imgDims[i] || { w: 4, h: 3 };
+      const ratio = dim.w / dim.h;
+      let drawW = cellW;
+      let drawH = drawW / ratio;
+      if (drawH > maxImgH) {
+        drawH = maxImgH;
+        drawW = drawH * ratio;
+      }
+      const offsetX = x + (cellW - drawW) / 2;
+      const offsetY = py + (maxImgH - drawH) / 2;
+      try { doc.addImage(fotos[i].dataUrl, "JPEG", offsetX, offsetY, drawW, drawH); } catch (e) {}
+      doc.setDrawColor(220);
+      doc.rect(offsetX, offsetY, drawW, drawH);
       doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(80, 80, 80);
       const cap = (fotos[i].kommentar || "").trim();
       if (cap) {
         const capLines = doc.splitTextToSize(cap, cellW);
-        doc.text(capLines.slice(0, 2), x, py + imgH + 14);
+        doc.text(capLines.slice(0, 2), x, py + maxImgH + 14);
       }
       if (col === 1) py += cellH;
+      // Fortschritt: 35% -> 70% linear über alle Fotos verteilen
+      const pct = 35 + Math.round(((i + 1) / fotos.length) * 35);
+      prog("Fotos werden eingefügt…", pct, `Foto ${i + 1} von ${fotos.length}`);
+      // Ganz kurz "Luft holen", damit der Browser das UI zeichnen kann
+      if (i % 2 === 1) await new Promise(res => setTimeout(res, 0));
     }
   }
 
@@ -1981,11 +2064,14 @@ async function exportPDF(r) {
 
   // Wenn keine Fotos: nur PDF
   if (fotosVoll.length === 0) {
+    prog("PDF wird finalisiert…", 95);
     const pdfBlob = doc.output("blob");
+    prog("Fertig", 100);
     return { blob: pdfBlob, fileName: pdfName, mime: "application/pdf" };
   }
 
   // Mit Fotos: ZIP mit PDF + Original-Bildern
+  prog("ZIP wird vorbereitet…", 72);
   await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", hasJSZip);
   const zip = new window.JSZip();
   const pdfBlob = doc.output("blob");
@@ -2004,8 +2090,20 @@ async function exportPDF(r) {
     const kommentar = sanitize(foto.kommentar || "").substring(0, 60);
     const fname = `${baseName}_${num}${kommentar ? "_" + kommentar : ""}.${ext}`;
     fotosOrdner.file(fname, data, { base64: isBase64 });
+    const pct = 72 + Math.round(((i + 1) / fotosVoll.length) * 10); // 72 -> 82
+    prog("Originalfotos werden gepackt…", pct, `Foto ${i + 1} von ${fotosVoll.length}`);
+    if (i % 3 === 2) await new Promise(res => setTimeout(res, 0));
   }
-  const zipBlob = await zip.generateAsync({ type: "blob" });
+  prog("ZIP wird komprimiert…", 85, null, "Kann bei vielen Fotos einen Moment dauern");
+  const zipBlob = await zip.generateAsync(
+    { type: "blob" },
+    (m) => {
+      // JSZip liefert Fortschritt 0..100 während der Komprimierung
+      const pct = 85 + Math.round((m.percent / 100) * 10); // 85 -> 95
+      prog("ZIP wird komprimiert…", pct);
+    }
+  );
+  prog("Fertig", 100);
   return { blob: zipBlob, fileName: `${baseName}.zip`, mime: "application/zip" };
 }
 
@@ -2041,8 +2139,12 @@ async function shareBlob(blob, fileName, title) {
 
 // Lädt einen Blob als Base64 an den Power-Automate-Flow hoch.
 // Die Datei landet dort direkt im OneDrive-Ordner des Admin-Kontos.
-async function uploadToCloud(blob, fileName) {
+async function uploadToCloud(blob, fileName, onProgress) {
   if (!UPLOAD_URL) throw new Error("Keine Upload-URL hinterlegt");
+  const prog = (percent, note, hint) => {
+    if (typeof onProgress === "function") onProgress({ step: "Wird zu OneDrive hochgeladen…", percent, note, hint });
+  };
+  prog(2, "Datei wird vorbereitet");
   // Blob -> Base64 (ohne "data:...;base64,"-Präfix)
   const base64 = await new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -2054,17 +2156,36 @@ async function uploadToCloud(blob, fileName) {
     reader.onerror = () => reject(reader.error || new Error("read failed"));
     reader.readAsDataURL(blob);
   });
-  const res = await fetch(UPLOAD_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fileName, fileContent: base64 }),
+  const body = JSON.stringify({ fileName, fileContent: base64 });
+  prog(10, "Verbindung wird aufgebaut");
+  // XHR statt fetch, damit wir echten Upload-Fortschritt bekommen
+  return await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", UPLOAD_URL, true);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    if (xhr.upload) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = 10 + Math.round((e.loaded / e.total) * 80); // 10 -> 90
+          const mb = (e.loaded / (1024 * 1024)).toFixed(1);
+          const totalMb = (e.total / (1024 * 1024)).toFixed(1);
+          prog(pct, `${mb} MB von ${totalMb} MB übertragen`);
+        }
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        prog(98, "OneDrive verarbeitet die Datei…");
+        resolve(true);
+      } else {
+        reject(new Error("Upload fehlgeschlagen: " + xhr.status + " " + (xhr.responseText || "").substring(0, 150)));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Netzwerk-Fehler beim Upload (kein Internet?)"));
+    xhr.ontimeout = () => reject(new Error("Zeitüberschreitung beim Upload"));
+    xhr.timeout = 120000; // 2 Minuten
+    xhr.send(body);
   });
-  if (!res.ok) {
-    let detail = "";
-    try { detail = await res.text(); } catch {}
-    throw new Error("Upload fehlgeschlagen: " + res.status + " " + detail.substring(0, 150));
-  }
-  return true;
 }
 
 // ============================================================
@@ -2077,6 +2198,7 @@ export default function App() {
   const [current, setCurrent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
+  const [progress, setProgress] = useState(null); // {step, percent, note, hint} oder null
 
   useEffect(() => {
     (async () => {
@@ -2091,7 +2213,7 @@ export default function App() {
   const showToast = (msg, ms) => {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(""), ms || 2500);
+    toastTimer.current = setTimeout(() => setToast(""), ms || 5000);
   };
 
   // Baustellen-Ordner aus dem Index ableiten
@@ -2184,11 +2306,10 @@ export default function App() {
   };
   const buildExport = async (saved) => {
     // Liefert {blob, fileName, mime} oder wirft.
-    return await exportPDF(saved);
+    return await exportPDF(saved, setProgress);
   };
 
   const handleExport = async () => {
-    // Speichern + Datei normal herunterladen
     let saved;
     try {
       saved = await persist(current);
@@ -2202,14 +2323,15 @@ export default function App() {
       return;
     }
     const hasFotos = Array.isArray(saved.fotos) && saved.fotos.length > 0;
-    showToast(hasFotos ? "ZIP wird erstellt (PDF + Fotos)…" : "PDF wird erstellt…");
     try {
       const out = await buildExport(saved);
+      setProgress(null);
       downloadBlob(out.blob, out.fileName);
-      showToast(hasFotos ? "ZIP erstellt ✓" : "PDF erstellt ✓");
+      showToast(hasFotos ? "ZIP erstellt ✓" : "PDF erstellt ✓", 6000);
     } catch (e) {
       console.error(e);
-      showToast("Export benötigt Internet – Bericht ist gespeichert");
+      setProgress(null);
+      showToast("Export fehlgeschlagen: " + (e && e.message ? e.message.substring(0, 150) : ""), 10000);
     }
   };
 
@@ -2227,34 +2349,32 @@ export default function App() {
         : "Speichern fehlgeschlagen");
       return;
     }
-    const hasFotos = Array.isArray(saved.fotos) && saved.fotos.length > 0;
     let out;
     try {
-      showToast(hasFotos ? "Datei wird vorbereitet (PDF + Fotos)…" : "Datei wird vorbereitet…");
       out = await buildExport(saved);
     } catch (e) {
       console.error(e);
+      setProgress(null);
       showToast("Datei konnte nicht erzeugt werden");
       return;
     }
     // Weg 1: Automatischer Upload an Power Automate (OneDrive)
     if (UPLOAD_URL) {
-      showToast("Wird an OneDrive hochgeladen…");
       try {
-        await uploadToCloud(out.blob, out.fileName);
-        // Upload-Status im Bericht vermerken (klein, spart Speicher)
+        await uploadToCloud(out.blob, out.fileName, setProgress);
+        setProgress(null);
         const stamp = Date.now();
         const savedUp = { ...saved, uploaded: true, uploadedAt: stamp, uploadedFileName: out.fileName, uploadError: "" };
         try {
           await persist(savedUp);
           setCurrent(savedUp);
         } catch (e) { console.error("save upload status failed:", e); }
-        showToast("An OneDrive hochgeladen ✓");
+        showToast("An OneDrive hochgeladen ✓", 6000);
         return;
       } catch (e) {
         console.error("uploadToCloud failed:", e);
+        setProgress(null);
         const msg = (e && e.message) ? String(e.message) : "unbekannter Fehler";
-        // Fehler-Status im Bericht speichern
         try {
           const savedErr = { ...saved, uploaded: false, uploadError: msg.substring(0, 300), uploadTriedAt: Date.now() };
           await persist(savedErr);
@@ -2291,23 +2411,24 @@ export default function App() {
     if (!rep) { showToast("Bericht nicht gefunden"); return; }
     let out;
     try {
-      showToast("Datei wird vorbereitet…");
       out = await buildExport(rep);
     } catch (e) {
       console.error(e);
+      setProgress(null);
       showToast("Datei konnte nicht erzeugt werden");
       return;
     }
-    if (!UPLOAD_URL) { showToast("Keine Upload-URL hinterlegt"); return; }
-    showToast("Wird an OneDrive hochgeladen…");
+    if (!UPLOAD_URL) { setProgress(null); showToast("Keine Upload-URL hinterlegt"); return; }
     try {
-      await uploadToCloud(out.blob, out.fileName);
+      await uploadToCloud(out.blob, out.fileName, setProgress);
+      setProgress(null);
       const stamp = Date.now();
       const savedUp = { ...rep, uploaded: true, uploadedAt: stamp, uploadedFileName: out.fileName, uploadError: "" };
       await persist(savedUp);
-      showToast("An OneDrive hochgeladen ✓");
+      showToast("An OneDrive hochgeladen ✓", 6000);
     } catch (e) {
       console.error("retry uploadToCloud failed:", e);
+      setProgress(null);
       const msg = (e && e.message) ? String(e.message) : "unbekannter Fehler";
       try {
         const savedErr = { ...rep, uploaded: false, uploadError: msg.substring(0, 300), uploadTriedAt: Date.now() };
@@ -2357,6 +2478,8 @@ export default function App() {
       ) : (
         <Editor report={current} onChange={setCurrent} onBack={() => setView(currentFolder ? "list" : "folders")} onSave={handleSave} onExport={handleExport} onShare={handleShare} existingFolders={folders.map(f => f.name).filter(n => n !== FOLDER_FALLBACK)} />
       )}
+
+      <ProgressOverlay progress={progress} />
 
       {toast && (
         <div
