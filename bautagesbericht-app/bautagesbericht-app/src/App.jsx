@@ -9,6 +9,10 @@ const GREEN = "#5BA83A";
 const DARKGREEN = "#3E7A28";
 const INK = "#1f2417";
 
+// Upload-URL für den Bautagesberichte-Flow (Power Automate → OneDrive)
+// Läuft direkt in den OneDrive-Ordner des Admin-Kontos, kein Login der Vorarbeiter nötig.
+const UPLOAD_URL = "https://default5f1877e2e25e45ffacad713b4d42f1.f1.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/29/workflows/bc308760667b4d68bfbc94af290453aa/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=eOi81OWVy9EpUbbLqWznVKxNURFDyPGviOp27op8XAw";
+
 // ===== Mitarbeiter-Datenbank =====
 // Format: "Nachname Vorname" + Tätigkeit
 const MITARBEITER = [
@@ -1965,6 +1969,34 @@ async function shareBlob(blob, fileName, title) {
   return { shared: false };
 }
 
+// Lädt einen Blob als Base64 an den Power-Automate-Flow hoch.
+// Die Datei landet dort direkt im OneDrive-Ordner des Admin-Kontos.
+async function uploadToCloud(blob, fileName) {
+  if (!UPLOAD_URL) throw new Error("Keine Upload-URL hinterlegt");
+  // Blob -> Base64 (ohne "data:...;base64,"-Präfix)
+  const base64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const s = reader.result || "";
+      const comma = s.indexOf(",");
+      resolve(comma >= 0 ? s.substring(comma + 1) : s);
+    };
+    reader.onerror = () => reject(reader.error || new Error("read failed"));
+    reader.readAsDataURL(blob);
+  });
+  const res = await fetch(UPLOAD_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fileName, fileContent: base64 }),
+  });
+  if (!res.ok) {
+    let detail = "";
+    try { detail = await res.text(); } catch {}
+    throw new Error("Upload fehlgeschlagen: " + res.status + " " + detail.substring(0, 150));
+  }
+  return true;
+}
+
 // ============================================================
 // Root
 // ============================================================
@@ -2112,14 +2144,33 @@ export default function App() {
       return;
     }
     const hasFotos = Array.isArray(saved.fotos) && saved.fotos.length > 0;
-    showToast(hasFotos ? "Datei wird vorbereitet (PDF + Fotos)…" : "Datei wird vorbereitet…");
+    let out;
     try {
-      const out = await buildExport(saved);
+      showToast(hasFotos ? "Datei wird vorbereitet (PDF + Fotos)…" : "Datei wird vorbereitet…");
+      out = await buildExport(saved);
+    } catch (e) {
+      console.error(e);
+      showToast("Datei konnte nicht erzeugt werden");
+      return;
+    }
+    // Weg 1: Automatischer Upload an Power Automate (OneDrive)
+    if (UPLOAD_URL) {
+      showToast("Wird an OneDrive hochgeladen…");
+      try {
+        await uploadToCloud(out.blob, out.fileName);
+        showToast("An OneDrive hochgeladen ✓");
+        return;
+      } catch (e) {
+        console.error("uploadToCloud failed:", e);
+        // Kein Netz oder Server-Fehler → auf Teilen-Dialog zurückfallen
+        showToast("Upload fehlgeschlagen, öffne Teilen-Dialog…");
+      }
+    }
+    // Weg 2 (Fallback): iOS-Teilen-Dialog
+    try {
       const title = `Bautagesbericht ${saved.bauvorhaben || ""} ${saved.datum || ""}`.trim();
       const result = await shareBlob(out.blob, out.fileName, title);
-      showToast(result.shared
-        ? "An OneDrive geteilt ✓"
-        : "Teilen nicht verfügbar – heruntergeladen");
+      showToast(result.shared ? "Geteilt ✓" : "Heruntergeladen ✓");
     } catch (e) {
       console.error(e);
       showToast("Teilen fehlgeschlagen – siehe Konsole");
