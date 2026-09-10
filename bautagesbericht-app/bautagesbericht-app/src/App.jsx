@@ -16,82 +16,84 @@ const UPLOAD_URL = "https://default5f1877e2e25e45ffacad713b4d42f1.f1.environment
 // ===== Mitarbeiter-Datenbank =====
 // Format: "Nachname Vorname" + Tätigkeit
 const MITARBEITER = [
-  { name: "Alletsgruber Mathias", taetigkeit: "Lehrling 1. Lehrjahr" },
-  { name: "Aufhammer Robert",     taetigkeit: "Facharbeiter" },
-  { name: "Bachmann Philip",      taetigkeit: "Abbund" },
-  { name: "Baumgartner Christoph",taetigkeit: "Lehrling 2. Lehrjahr" },
-  { name: "Baumgartner Elias",    taetigkeit: "Lehrling 2. Lehrjahr" },
-  { name: "Danner Mathias",       taetigkeit: "Lehrling 3. Lehrjahr" },
-  { name: "Eberwein Martin",      taetigkeit: "Vorarbeiter" },
-  { name: "Eberwein Christian",   taetigkeit: "LKW klein + Vorarbeiter" },
-  { name: "Eder Maximilian",      taetigkeit: "Lehrling 3. Lehrjahr" },
-  { name: "Eder Thomas",          taetigkeit: "Vorarbeiter" },
-  { name: "Fahringer Michael",    taetigkeit: "Meister + Tech. Zeichner" },
-  { name: "Grones Stefan",        taetigkeit: "Technischer Zeichner + Bauleiter" },
-  { name: "Gruber Johannes",      taetigkeit: "Polier" },
-  { name: "Gruber Josef",         taetigkeit: "Vorarbeiter" },
-  { name: "Heger Sebastian",      taetigkeit: "Facharbeiter" },
-  { name: "Heger Thomas",         taetigkeit: "Technischer Zeichner + Bauleiter" },
-  { name: "Horngacher Philipp",   taetigkeit: "Vorarbeiter" },
-  { name: "Huber Sander",         taetigkeit: "Lehrling 3. Lehrjahr" },
-  { name: "Kania Manuel",         taetigkeit: "Facharbeiter" },
-  { name: "Koller Markus",        taetigkeit: "Facharbeiter" },
-  { name: "Koller Lukas",         taetigkeit: "Vorarbeiter" },
-  { name: "Kronbichler Josef",    taetigkeit: "Facharbeiter" },
-  { name: "Kronbichler Thomas",   taetigkeit: "Vorarbeiter" },
-  { name: "Löffler Peter",        taetigkeit: "Meister + Tech. Zeichner" },
-  { name: "Miller Bastian",       taetigkeit: "Facharbeiter" },
-  { name: "Mittermaier Christoph",taetigkeit: "Lehrling 3. Lehrjahr" },
-  { name: "Müller Jürgen",        taetigkeit: "Lehrling 2. Lehrjahr" },
-  { name: "Neumann Tim",          taetigkeit: "Meister + Tech. Zeichner" },
-  { name: "Osterauer Markus",     taetigkeit: "LKW groß + Vorarbeiter" },
-  { name: "Pichler Markus",       taetigkeit: "Vorarbeiter" },
-  { name: "Polin Reinhard",       taetigkeit: "Lagermitarbeiter" },
-  { name: "Schmid Helmut",        taetigkeit: "Vorarbeiter" },
-  { name: "Schächl Georg",        taetigkeit: "Facharbeiter" },
-  { name: "Schreder Sebastian",   taetigkeit: "Facharbeiter" },
-  { name: "Schwaiger Andreas",    taetigkeit: "Lagermitarbeiter" },
-  { name: "Schwaiger Helmut",     taetigkeit: "Vorarbeiter" },
-  { name: "Schwaiger Thomas",     taetigkeit: "Vorarbeiter" },
-  { name: "Schwaighofer Andreas", taetigkeit: "Geschäftsführung" },
-  { name: "Schwaighofer Isabella",taetigkeit: "Büromitarbeiterin" },
-  { name: "Schwaighofer Julia",   taetigkeit: "Büromitarbeiterin" },
-  { name: "Schwaighofer Sandra",  taetigkeit: "Büromitarbeiterin" },
-  { name: "Sieberer Johannes",    taetigkeit: "Lehrling 3. Lehrjahr" },
-  { name: "Sedlak Justin",        taetigkeit: "Facharbeiter" },
-  { name: "Steiner Benjamin",     taetigkeit: "Vorarbeiter" },
+  // Techniker (auch als Bauführer nutzbar)
+  { name: "Fahringer Michael",       taetigkeit: "Techniker" },
+  { name: "Grones Stefan",           taetigkeit: "Techniker" },
+  { name: "Heger Thomas",            taetigkeit: "Techniker" },
+  { name: "Löffler Peter",           taetigkeit: "Techniker" },
+  { name: "Neumann Tim",             taetigkeit: "Techniker" },
+  // Vorarbeiter
+  { name: "Achrainer Noel",          taetigkeit: "Vorarbeiter" },
+  { name: "Eberwein Christian",      taetigkeit: "Vorarbeiter" },
+  { name: "Eberwein Martin",         taetigkeit: "Vorarbeiter" },
+  { name: "Eder Thomas",             taetigkeit: "Vorarbeiter" },
+  { name: "Gruber Johannes",         taetigkeit: "Vorarbeiter" },
+  { name: "Gruber Josef",            taetigkeit: "Vorarbeiter" },
+  { name: "Horngacher Philipp",      taetigkeit: "Vorarbeiter" },
+  { name: "Koller Lukas",            taetigkeit: "Vorarbeiter" },
+  { name: "Kronbichler Thomas",      taetigkeit: "Vorarbeiter" },
+  { name: "Osterauer Markus",        taetigkeit: "Vorarbeiter" },
+  { name: "Pichler Markus",          taetigkeit: "Vorarbeiter" },
+  { name: "Schmid Helmut",           taetigkeit: "Vorarbeiter" },
+  { name: "Schwaiger Helmut",        taetigkeit: "Vorarbeiter" },
+  { name: "Schwaiger Thomas",        taetigkeit: "Vorarbeiter" },
+  { name: "Steiner Benjamin",        taetigkeit: "Vorarbeiter" },
+  // Facharbeiter
+  { name: "Aufhammer Robert",        taetigkeit: "Facharbeiter" },
+  { name: "Bachmann Philip",         taetigkeit: "Facharbeiter" },
+  { name: "Danner Matthias",         taetigkeit: "Facharbeiter" },
+  { name: "Eder Maximilian",         taetigkeit: "Facharbeiter" },
+  { name: "Heger Sebastian",         taetigkeit: "Facharbeiter" },
+  { name: "Huber Sander",            taetigkeit: "Facharbeiter" },
+  { name: "Kania Manuel",            taetigkeit: "Facharbeiter" },
+  { name: "Koller Markus",           taetigkeit: "Facharbeiter" },
+  { name: "Kronbichler Josef",       taetigkeit: "Facharbeiter" },
+  { name: "Miller Bastian",          taetigkeit: "Facharbeiter" },
+  { name: "Mittermaier Christoph",   taetigkeit: "Facharbeiter" },
+  { name: "Polin Reinhard",          taetigkeit: "Facharbeiter" },
+  { name: "Schächl Georg",           taetigkeit: "Facharbeiter" },
+  { name: "Schreder Sebastian",      taetigkeit: "Facharbeiter" },
+  { name: "Schwaiger Andreas",       taetigkeit: "Facharbeiter" },
+  { name: "Sedlak Justin",           taetigkeit: "Facharbeiter" },
+  { name: "Sieberer Johannes",       taetigkeit: "Facharbeiter" },
+  // Lehrlinge – Zusatzinfo in "lehrjahrLabel" wird beim Anzeigen an den Namen angehängt
+  { name: "Alletsgruber Mathias",    taetigkeit: "Lehrling", lehrjahrLabel: "2. LJ" },
+  { name: "Baumgartner Christoph",   taetigkeit: "Lehrling", lehrjahrLabel: "3. LJ" },
+  { name: "Baumgartner Elias",       taetigkeit: "Lehrling", lehrjahrLabel: "3. LJ" },
+  { name: "Müller Jürgen",           taetigkeit: "Lehrling", lehrjahrLabel: "2. LJ" },
+  { name: "Thies Laurens",           taetigkeit: "Lehrling", lehrjahrLabel: "1. LJ" },
 ].sort((a, b) => a.name.localeCompare(b.name, "de"));
 
 const isLehrling     = (t) => /Lehrling/i.test(t);
 const isFacharbeiter = (t) => /Facharbeiter/i.test(t) && !isLehrling(t);
-// Echter Vorarbeiter: Tätigkeit enthält "Vorarbeiter" oder "Polier" (aber kein Lehrling).
-// "Meister" zählt NICHT als Vorarbeiter für die Auswahllisten.
 const isEchterVorarbeiter = (t) => /Vorarbeiter|Polier/i.test(t) && !isLehrling(t);
-// Für Bauführer weiterhin etwas breiter (inkl. Meister, Polier, Geschäftsführung)
-const isVorarbeiter  = (t) => /Vorarbeiter|Polier|Meister/i.test(t);
+const isTechniker    = (t) => /Techniker/i.test(t) || /Tech(\.|nischer)?\s*Zeichner|Bauleiter|Meister/i.test(t);
 const isBuro         = (t) => /Büromitarbeiter/i.test(t);
-const isTechZeichner = (t) => /Tech(\.|nischer)?\s*Zeichner|Bauleiter/i.test(t);
 const isLager        = (t) => /Lagermitarbeiter/i.test(t);
 
-// Bauführer-Auswahl: alle außer Lehrlinge, Büro (außer Geschäftsführung), Tech. Zeichner/Bauleiter, Lager
-const BAUFUEHRER_LIST = MITARBEITER
-  .filter(m => !isLehrling(m.taetigkeit) && !isBuro(m.taetigkeit) && !isTechZeichner(m.taetigkeit) && !isLager(m.taetigkeit))
-  .map(m => m.name);
+// Anzeigename: bei Lehrlingen "Name - X. LJ (Zusatz)", sonst reiner Name.
+const displayName = (m) => m.lehrjahrLabel ? `${m.name} - ${m.lehrjahrLabel}` : m.name;
 
-// Vorarbeiter-Feld: NUR echte Vorarbeiter (Vorarbeiter oder Polier, ohne Meister, ohne Lehrling)
+// Bauführer-Auswahl: Vorarbeiter, Facharbeiter UND Techniker – alphabetisch
+const BAUFUEHRER_LIST = MITARBEITER
+  .filter(m => isEchterVorarbeiter(m.taetigkeit) || isFacharbeiter(m.taetigkeit) || isTechniker(m.taetigkeit))
+  .map(m => m.name)
+  .sort((a, b) => a.localeCompare(b, "de"));
+
+// Vorarbeiter-Feld: NUR echte Vorarbeiter (kein Techniker, kein Lehrling)
 const VORARBEITER_LIST = MITARBEITER
   .filter(m => isEchterVorarbeiter(m.taetigkeit))
   .map(m => m.name);
 
-// Facharbeiter-Feld: Facharbeiter + alle echten Vorarbeiter (zur gemeinsamen Auswahl)
+// Facharbeiter-Feld: Facharbeiter + alle echten Vorarbeiter
 const FACHARBEITER_LIST = MITARBEITER
-  .filter(m => (isFacharbeiter(m.taetigkeit) || isEchterVorarbeiter(m.taetigkeit)) && !isLehrling(m.taetigkeit))
+  .filter(m => isFacharbeiter(m.taetigkeit) || isEchterVorarbeiter(m.taetigkeit))
   .map(m => m.name);
 
-// Lehrlings-Feld: alle Lehrlinge
+// Lehrlings-Feld: alle Lehrlinge, ANZEIGENAME mit Lehrjahr
 const LEHRLINGE_LIST = MITARBEITER
   .filter(m => isLehrling(m.taetigkeit))
-  .map(m => m.name);
+  .map(m => displayName(m));
 
 // LKW-Optionen (feste Auswahl)
 const LKW_OPTIONS = ["LKW 31 Tonnen", "LKW 24 Tonnen"];
@@ -654,7 +656,7 @@ function MaterialList({ items, onChange, placeholder }) {
         </p>
       )}
       {list.map((it) => (
-        <div key={it.id} style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "stretch", flexWrap: "wrap" }}>
+        <div key={it.id} className="listrow" style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "stretch", flexWrap: "wrap" }}>
           <input
             value={it.bezeichnung}
             onChange={e => update(it.id, "bezeichnung", e.target.value)}
@@ -710,7 +712,7 @@ function FahrzeugList({ items, onChange }) {
         </p>
       )}
       {list.map((it) => (
-        <div key={it.id} style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "stretch", flexWrap: "wrap" }}>
+        <div key={it.id} className="listrow" style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "stretch", flexWrap: "wrap" }}>
           <select
             value={it.name || ""}
             onChange={e => update(it.id, "name", e.target.value)}
@@ -767,7 +769,7 @@ function RegieLeistungList({ items, onChange }) {
         </p>
       )}
       {list.map((it) => (
-        <div key={it.id} style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "stretch", flexWrap: "wrap" }}>
+        <div key={it.id} className="listrow" style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "stretch", flexWrap: "wrap" }}>
           <input
             value={it.bezeichnung}
             onChange={e => update(it.id, "bezeichnung", e.target.value)}
@@ -1169,9 +1171,9 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
   ];
 
   return (
-    <div style={{ paddingBottom: 120 }}>
+    <div className="edit-page" style={{ paddingBottom: 120 }}>
       {/* top bar */}
-      <div style={{ position: "sticky", top: 0, zIndex: 10, background: "#fbfbf4", borderBottom: "2px solid #e3e3d4", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+      <div className="topbar" style={{ position: "sticky", top: 0, zIndex: 10, background: "#fbfbf4", borderBottom: "2px solid #e3e3d4", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <button onClick={onBack} style={btnGhost}><ChevronLeft size={20} /> Zurück</button>
         <div style={{ flex: 1 }} />
         <button onClick={onSave} style={{ ...btnGhost, background: GREEN, color: "#fff", borderColor: GREEN, padding: "12px 22px", fontSize: 16 }}>
@@ -1258,7 +1260,7 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
                 set({ arbeiter: { ...r.arbeiter, [key]: { ...a, stundenPro: newSP, std: val } } });
               };
               return (
-                <div key={key} style={{ border: "2px solid #c9cabb", borderRadius: 14, background: "#fff", padding: 14 }}>
+                <div key={key} className="arbeiter-karte" style={{ border: "2px solid #c9cabb", borderRadius: 14, background: "#fff", padding: 14 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
                     <div style={{ fontWeight: 700, fontSize: 16, color: DARKGREEN }}>{lbl}</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 14, color: "#6b6c5c" }}>
@@ -1287,7 +1289,7 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
                       <div style={{ display: "grid", gap: 8 }}>
                         {selectedNames.map(n => (
                           <div key={n} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "#fbfbf4", borderRadius: 10, border: "1px solid #e3e3d4" }}>
-                            <span style={{ flex: 1, fontSize: 15, color: INK, fontWeight: 500 }}>{n}</span>
+                            <span className="arbeiter-karte-name" style={{ flex: 1, fontSize: 15, color: INK, fontWeight: 500 }}>{n}</span>
                             <input
                               inputMode="decimal"
                               value={(a.stundenPro && a.stundenPro[n] !== undefined) ? a.stundenPro[n] : (a.std || "")}
@@ -2465,7 +2467,83 @@ export default function App() {
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Source+Sans+3:wght@400;600;700&display=swap');
         * { -webkit-tap-highlight-color: transparent; }
         input:focus, textarea:focus { outline: none; border-color:${GREEN} !important; box-shadow:0 0 0 3px rgba(91,168,58,.18); }
-        button:active { transform: scale(.97); }`}</style>
+        button:active { transform: scale(.97); }
+
+        /* ============================================================
+           Smartphone-Optimierung (unter 768 px, also Handys im Hochformat)
+           Tablet-Ansicht bleibt vollständig unverändert.
+           ============================================================ */
+        @media (max-width: 768px) {
+          /* Grundlegend etwas größere Basis-Schrift auf Handys */
+          body { font-size: 16px; }
+
+          /* Alle Eingabefelder größer + minimale Antipp-Höhe für den Daumen */
+          input, select, textarea {
+            font-size: 16px !important;      /* verhindert Auto-Zoom auf iOS */
+            min-height: 44px !important;     /* Apple-Standard für Touch */
+            padding: 12px 14px !important;
+          }
+          /* Ausnahme: Stunden- und Mengen-Felder bleiben kompakt (sonst zu breit) */
+          input[inputmode="decimal"], input[inputmode="numeric"] {
+            padding: 10px 8px !important;
+            font-size: 17px !important;      /* etwas größer, sind ja Zahlen */
+          }
+
+          /* Alle Buttons komfortabel groß */
+          button {
+            min-height: 44px;
+            font-size: 15px !important;
+          }
+
+          /* Überschriften nicht zu klein werden lassen */
+          h1 { font-size: 26px !important; }
+          h2 { font-size: 20px !important; }
+
+          /* Feld-Beschriftungen (Labels) etwas kräftiger */
+          label { font-size: 14px !important; font-weight: 700 !important; }
+
+          /* Kategorie-Karten (Vorarbeiter/Facharbeiter/Lehrlinge) etwas mehr Luft */
+          .arbeiter-karte { padding: 16px !important; }
+          .arbeiter-karte-name { font-size: 16px !important; font-weight: 600 !important; }
+
+          /* Material-, Fahrzeug-, Regie-Zeilen: nicht mehr in eine Reihe quetschen */
+          .listrow {
+            gap: 10px !important;
+          }
+          .listrow > input, .listrow > select {
+            flex: 1 1 100% !important;       /* auf Handy stapeln */
+            min-width: 0 !important;
+          }
+          .listrow > .listrow-menge {
+            flex: 1 1 45% !important;
+            min-width: 100px !important;
+          }
+          .listrow > .listrow-einheit {
+            flex: 1 1 45% !important;
+            min-width: 110px !important;
+          }
+          .listrow > .listrow-remove {
+            flex: 0 0 auto !important;
+          }
+
+          /* Auswahl-Pillen (Namen) mit mehr Luft zum Antippen */
+          .pill { font-size: 15px !important; padding: 8px 12px 8px 14px !important; }
+          .pill button { min-height: 28px !important; }
+
+          /* Padding an den Rändern des Editors reduzieren, damit mehr Inhalt sichtbar ist */
+          .edit-page { padding: 12px 12px 100px !important; }
+
+          /* Top-Bar (Speichern/OneDrive/PDF): Knöpfe komfortabel und immer sichtbar */
+          .topbar button { font-size: 14px !important; padding: 10px 14px !important; }
+        }
+
+        /* Sehr kleine Handys (unter 380 px, alte iPhones SE etc.): noch einen Tick kompakter */
+        @media (max-width: 380px) {
+          h1 { font-size: 22px !important; }
+          .topbar { gap: 6px !important; padding: 8px 10px !important; }
+          .topbar button { font-size: 13px !important; padding: 9px 10px !important; }
+        }
+      `}</style>
 
       {loading ? (
         <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", color: "#9a9b89" }}>Lädt…</div>
