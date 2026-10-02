@@ -2060,7 +2060,15 @@ async function exportPDF(r, onProgress) {
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(r.datum || "");
     return m ? `${m[3]}-${m[2]}-${m[1]}` : (r.datum || "ohne-Datum");
   })();
-  const baseName  = `${baustelle}_${datumTMJ}`;
+  // Vorarbeiter in den Dateinamen, damit zwei Berichte vom selben Bauvorhaben/Tag
+  // sich in SharePoint nicht gegenseitig überschreiben. Bei mehreren: der erste.
+  // Fallback: Bauführer. Ist beides leer, bleibt der Name wie bisher.
+  const ersterVorarbeiter = (r.arbeiter?.vorarbeiter?.namen || "")
+    .split(",").map(s => s.trim()).filter(Boolean)[0] || r.bauführer || "";
+  const vorarbeiterTeil = sanitize(ersterVorarbeiter);
+  const baseName  = vorarbeiterTeil
+    ? `${baustelle}_${datumTMJ}_${vorarbeiterTeil}`
+    : `${baustelle}_${datumTMJ}`;
   const pdfName   = `${baseName}.pdf`;
   const fotosVoll = Array.isArray(r.fotos) ? r.fotos.filter(f => f && f.originalUrl) : [];
 
