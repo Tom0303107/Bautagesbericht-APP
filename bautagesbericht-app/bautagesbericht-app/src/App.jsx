@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Plus, FileText, Trash2, Save, Download, ChevronLeft, Sun, CloudRain, Snowflake, Wind, ThermometerSnowflake, Check, X, Eraser, Share2, FolderOpen, Copy, ImagePlus, Camera } from "lucide-react";
+import { Plus, FileText, Trash2, Save, Download, ChevronLeft, Sun, CloudRain, Snowflake, Wind, ThermometerSnowflake, Check, X, Eraser, Share2, FolderOpen, Copy, ImagePlus, Camera, Upload } from "lucide-react";
 
 // ============================================================
 // Bau-Tagesbericht — Tablet-App für Zimmerei Schwaighofer GmbH
@@ -133,7 +133,6 @@ const emptyReport = () => ({
   techniker: "",
   bauführer: "",
   witterung: { sonne: false, regen: false, frost: false, wind: false, schnee: false },
-  temperatur: "",
   arbeiter: {
     vorarbeiter:  { n: "", std: "", namen: "", stundenPro: {} },
     facharbeiter: { n: "", std: "", namen: "", stundenPro: {} },
@@ -1037,72 +1036,6 @@ function BulkStundenSetzer({ onSet }) {
   );
 }
 
-// Temperatur-Schieberegler von -20 bis +40 °C mit großer Anzeige
-function TempSlider({ value, onChange, min = -20, max = 40 }) {
-  const parsed = parseInt((value || "").replace("+", ""), 10);
-  const num = isNaN(parsed) ? 10 : parsed;
-  const display = num > 0 ? "+" + num : String(num);
-  const t = (num - min) / (max - min);
-  const hue = Math.round(220 - t * 220);
-  const color = `hsl(${hue}, 75%, 45%)`;
-  const handleChange = (raw) => {
-    const n = parseInt(raw, 10);
-    onChange(n > 0 ? "+" + n : String(n));
-  };
-  const fillPercent = t * 100;
-  const trackBg = `linear-gradient(to right, ${color} 0%, ${color} ${fillPercent}%, #d6d7c8 ${fillPercent}%, #d6d7c8 100%)`;
-  return (
-    <div style={{ padding: "8px 4px 4px" }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 4, marginBottom: 14 }}>
-        <span style={{ fontSize: 48, fontWeight: 800, color, lineHeight: 1, fontFamily: "Oswald, sans-serif" }}>{display}</span>
-        <span style={{ fontSize: 24, fontWeight: 700, color: "#6b6c5c" }}>°C</span>
-      </div>
-      <div style={{ position: "relative", padding: "10px 0" }}>
-        <input type="range" min={min} max={max} step={1} value={num}
-          onChange={(e) => handleChange(e.target.value)}
-          className="temp-slider"
-          style={{ width: "100%", margin: 0, cursor: "pointer", display: "block", background: trackBg }} />
-      </div>
-      <style>{`
-        input.temp-slider {
-          -webkit-appearance: none;
-          appearance: none;
-          height: 14px;
-          border-radius: 999px;
-          border: 1px solid #b8b9a8;
-          outline: none;
-        }
-        input.temp-slider::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          appearance: none;
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          background: #ffffff;
-          border: 3px solid ${color};
-          box-shadow: 0 2px 6px rgba(0,0,0,.25);
-          cursor: grab;
-        }
-        input.temp-slider::-webkit-slider-thumb:active { cursor: grabbing; transform: scale(1.1); }
-        input.temp-slider::-moz-range-thumb {
-          width: 32px; height: 32px; border-radius: 50%;
-          background: #ffffff;
-          border: 3px solid ${color};
-          box-shadow: 0 2px 6px rgba(0,0,0,.25);
-          cursor: grab;
-        }
-        input.temp-slider::-moz-range-track { background: transparent; }
-      `}</style>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6b6c5c", marginTop: 8, padding: "0 4px", fontWeight: 600 }}>
-        <span>{min} °C</span>
-        <span>0 °C</span>
-        <span>+{max} °C</span>
-      </div>
-    </div>
-  );
-}
-
-
 // Autocomplete für Bauvorhaben: zeigt passende bereits angelegte Baustellen
 function BauvorhabenAutocomplete({ value, onChange, suggestions }) {
   const [open, setOpen] = useState(false);
@@ -1189,6 +1122,11 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
       </div>
 
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "24px 18px" }}>
+        {r.bueroKorrektur && (
+          <div style={{ background: "#fff6e0", border: "2px solid #e6c46a", borderRadius: 12, padding: "10px 14px", marginBottom: 16, fontSize: 14, color: "#6b5310", fontWeight: 600 }}>
+            Nachträglich bearbeiteter Bericht – wird als „…_korrigiert“ exportiert und im PDF vermerkt.
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
           <div>
             <h2 style={{ fontFamily: "Oswald, sans-serif", fontSize: 30, color: INK, margin: "0 0 4px", textTransform: "uppercase", letterSpacing: 1 }}>Bau-Tagesbericht</h2>
@@ -1201,11 +1139,6 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
           <div style={{ flex: "0 0 200px" }}>
             <Field label="Datum">
               <TextInput type="date" value={r.datum} onChange={e => set({ datum: e.target.value })} style={{ fontSize: 16 }} />
-            </Field>
-          </div>
-          <div style={{ flex: "1 1 320px", minWidth: 280 }}>
-            <Field label="Temperatur">
-              <TempSlider value={r.temperatur} onChange={(v) => set({ temperatur: v })} />
             </Field>
           </div>
         </div>
@@ -1347,7 +1280,8 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
 // ============================================================
 // Folder list view (Baustellen)
 // ============================================================
-function FolderList({ folders, onOpenFolder, onNew, onDeleteFolder, onOpenAll }) {
+function FolderList({ folders, onOpenFolder, onNew, onDeleteFolder, onOpenAll, onImport }) {
+  const importRef = useRef(null);
   return (
     <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 18px 120px" }}>
       <div style={{ display: "flex", alignItems: "flex-end", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
@@ -1365,6 +1299,11 @@ function FolderList({ folders, onOpenFolder, onNew, onDeleteFolder, onOpenAll })
           <button onClick={onOpenAll} style={{ ...btnGhost, padding: "14px 18px", fontSize: 15, borderColor: DARKGREEN, color: DARKGREEN }} title="Alle Berichte aller Baustellen anzeigen (Admin-Übersicht)">
             <FileText size={20} /> Alle Berichte
           </button>
+          <button onClick={() => importRef.current && importRef.current.click()} style={{ ...btnGhost, padding: "14px 18px", fontSize: 15, borderColor: DARKGREEN, color: DARKGREEN }} title="Exportierte ZIP- oder PDF-Datei (z. B. aus SharePoint) zum Bearbeiten öffnen">
+            <Upload size={20} /> Bericht importieren
+          </button>
+          <input ref={importRef} type="file" accept=".zip,.pdf,application/zip,application/pdf" style={{ display: "none" }}
+            onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f && onImport) onImport(f); }} />
           <button onClick={onNew} style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "16px 24px", borderRadius: 14, border: "none", background: GREEN, color: "#fff", fontSize: 18, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 14px rgba(91,168,58,.35)" }}>
             <Plus size={24} /> Neuer Bericht
           </button>
@@ -1652,6 +1591,84 @@ function loadScript(src, checkFn) {
 }
 const hasJsPDF = () => !!(window.jspdf && window.jspdf.jsPDF);
 const hasJSZip = () => !!window.JSZip;
+const JSZIP_URL = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+
+// ============================================================
+// Berichtsdaten im Export mitspeichern (für nachträgliche Bearbeitung im Büro)
+//  - ZIP: zusätzliche Datei "bericht-daten.json"
+//  - PDF (ohne Fotos): Datenblock hinter dem PDF-Ende, PDF-Programme ignorieren ihn
+// ============================================================
+const BTB_JSON_NAME = "bericht-daten.json";
+const BTB_DATA_MARKER = "%BTBDATA:";
+
+function utf8ToBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+function base64ToUtf8(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+// Bericht in ein übertragbares Format bringen (ohne Upload-Status, ohne Original-Fotos –
+// die liegen als eigene Dateien im ZIP und werden über "zipFile" zugeordnet).
+function reportToTransfer(r, fotoNames) {
+  const { uploaded, uploadedAt, uploadedFileName, uploadError, uploadTriedAt, ...rest } = r;
+  const fotos = (Array.isArray(r.fotos) ? r.fotos : []).filter(Boolean).map(f => {
+    const { originalUrl, hasOriginal, hasPreview, ...fr } = f;
+    return { ...fr, zipFile: (fotoNames && fotoNames[f.id]) || null };
+  });
+  return { format: "btb-bericht", version: 1, exportiertAm: Date.now(), bericht: { ...rest, fotos } };
+}
+
+// Liest eine exportierte ZIP- oder PDF-Datei wieder als Bericht ein.
+async function importReportFile(file) {
+  const buf = await file.arrayBuffer();
+  const head = new Uint8Array(buf, 0, Math.min(4, buf.byteLength));
+  const isZip = head[0] === 0x50 && head[1] === 0x4B; // "PK"
+  let transfer, zip = null;
+  if (isZip) {
+    await loadScript(JSZIP_URL, hasJSZip);
+    zip = await window.JSZip.loadAsync(buf);
+    const jf = zip.file(BTB_JSON_NAME) || zip.file(/bericht-daten\.json$/)[0];
+    if (!jf) throw new Error("Diese ZIP-Datei enthält keine Berichtsdaten – sie wurde vermutlich vor dem Update erstellt.");
+    transfer = JSON.parse(await jf.async("string"));
+  } else {
+    const text = new TextDecoder("latin1").decode(buf);
+    const i = text.lastIndexOf(BTB_DATA_MARKER);
+    if (i < 0) throw new Error("Dieses PDF enthält keine Berichtsdaten – es wurde vermutlich vor dem Update erstellt.");
+    const m = /^[A-Za-z0-9+/=]+/.exec(text.substring(i + BTB_DATA_MARKER.length));
+    if (!m) throw new Error("Berichtsdaten im PDF sind beschädigt.");
+    transfer = JSON.parse(base64ToUtf8(m[0]));
+  }
+  if (!transfer || transfer.format !== "btb-bericht" || !transfer.bericht || !transfer.bericht.id) {
+    throw new Error("Unbekanntes Datenformat.");
+  }
+  const rep = transfer.bericht;
+  if (Array.isArray(rep.fotos)) {
+    for (const f of rep.fotos) {
+      if (zip && f.zipFile) {
+        const zf = zip.file(f.zipFile);
+        if (zf) {
+          const b64 = await zf.async("base64");
+          const ext = f.zipFile.split(".").pop().toLowerCase();
+          const mime = ext === "png" ? "image/png" : (ext === "heic" ? "image/heic" : "image/jpeg");
+          f.originalUrl = `data:${mime};base64,${b64}`;
+        }
+      }
+      delete f.zipFile;
+    }
+  }
+  rep.bueroKorrektur = true;
+  rep.uploaded = false;
+  rep.uploadError = "";
+  return rep;
+}
 
 async function exportPDF(r, onProgress) {
   const prog = (step, percent, note, hint) => {
@@ -1706,7 +1723,7 @@ async function exportPDF(r, onProgress) {
   if (r.techniker) line("Techniker:", r.techniker);
   line("Bauführer:", r.bauführer);
   const wit = Object.entries(r.witterung).filter(([, v]) => v).map(([k]) => k.charAt(0).toUpperCase() + k.slice(1)).join(", ");
-  line("Witterung:", wit + (r.temperatur ? `  (${r.temperatur} °C)` : ""));
+  line("Witterung:", wit);
 
   // Arbeiter-Tabelle
   y += 8; doc.setFont("helvetica", "bold"); doc.setFontSize(11);
@@ -1993,6 +2010,13 @@ async function exportPDF(r, onProgress) {
   doc.line(ML, y + 110, ML + 300, y + 110);
   doc.setFont("helvetica", "normal"); doc.setFontSize(8);
   doc.text("Unterschrift des Bauführers/-leiters", ML, y + 122);
+  if (r.bueroKorrektur) {
+    const d = new Date(r.updatedAt || Date.now());
+    const dd = `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
+    doc.setFont("helvetica", "italic"); doc.setFontSize(8); doc.setTextColor(120, 120, 110);
+    doc.text(`Nachträglich im Büro bearbeitet am ${dd}`, ML, y + 136);
+    doc.setTextColor(40, 40, 30);
+  }
 
   // Foto-Seite(n)
   const fotos = Array.isArray(r.fotos) ? r.fotos.filter(f => f && f.dataUrl) : [];
@@ -2062,28 +2086,29 @@ async function exportPDF(r, onProgress) {
   })();
   // Vorarbeiter in den Dateinamen, damit zwei Berichte vom selben Bauvorhaben/Tag
   // sich in SharePoint nicht gegenseitig überschreiben. Bei mehreren: der erste.
-  // Fallback: Bauführer. Ist beides leer, bleibt der Name wie bisher.
+  // Fallback: Bauführer. Ist beides leer, entfällt dieser Teil.
   const ersterVorarbeiter = (r.arbeiter?.vorarbeiter?.namen || "")
     .split(",").map(s => s.trim()).filter(Boolean)[0] || r.bauführer || "";
   const vorarbeiterTeil = sanitize(ersterVorarbeiter);
-  const baseName  = vorarbeiterTeil
-    ? `${baustelle}_${datumTMJ}_${vorarbeiterTeil}`
-    : `${baustelle}_${datumTMJ}`;
+  const baseName  = `${baustelle}_${datumTMJ}${vorarbeiterTeil ? "_" + vorarbeiterTeil : ""}${r.bueroKorrektur ? "_korrigiert" : ""}`;
   const pdfName   = `${baseName}.pdf`;
   const fotosVoll = Array.isArray(r.fotos) ? r.fotos.filter(f => f && f.originalUrl) : [];
 
   // Wenn keine Fotos: nur PDF
   if (fotosVoll.length === 0) {
     prog("PDF wird finalisiert…", 95);
-    const pdfBlob = doc.output("blob");
+    const pdfBytes = doc.output("arraybuffer");
+    const datenBlock = "\n" + BTB_DATA_MARKER + utf8ToBase64(JSON.stringify(reportToTransfer(r, {}))) + "\n";
+    const pdfBlob = new Blob([pdfBytes, datenBlock], { type: "application/pdf" });
     prog("Fertig", 100);
     return { blob: pdfBlob, fileName: pdfName, mime: "application/pdf" };
   }
 
   // Mit Fotos: ZIP mit PDF + Original-Bildern
   prog("ZIP wird vorbereitet…", 72);
-  await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js", hasJSZip);
+  await loadScript(JSZIP_URL, hasJSZip);
   const zip = new window.JSZip();
+  const fotoNames = {};
   const pdfBlob = doc.output("blob");
   zip.file(pdfName, pdfBlob);
   const fotosOrdner = zip.folder("Fotos");
@@ -2100,10 +2125,12 @@ async function exportPDF(r, onProgress) {
     const kommentar = sanitize(foto.kommentar || "").substring(0, 60);
     const fname = `${baseName}_${num}${kommentar ? "_" + kommentar : ""}.${ext}`;
     fotosOrdner.file(fname, data, { base64: isBase64 });
+    fotoNames[foto.id] = "Fotos/" + fname;
     const pct = 72 + Math.round(((i + 1) / fotosVoll.length) * 10); // 72 -> 82
     prog("Originalfotos werden gepackt…", pct, `Foto ${i + 1} von ${fotosVoll.length}`);
     if (i % 3 === 2) await new Promise(res => setTimeout(res, 0));
   }
+  zip.file(BTB_JSON_NAME, JSON.stringify(reportToTransfer(r, fotoNames)));
   prog("ZIP wird komprimiert…", 85, null, "Kann bei vielen Fotos einen Moment dauern");
   const zipBlob = await zip.generateAsync(
     { type: "blob" },
@@ -2455,12 +2482,46 @@ export default function App() {
       id: "rep_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
       datum: new Date().toISOString().slice(0, 10),
       signature: null,      // Unterschrift nicht übernehmen
+      bueroKorrektur: false,
+      uploaded: false, uploadedAt: 0, uploadError: "",
       updatedAt: Date.now(),
     };
     const saved = await persist(copy);
     setCurrent(saved);
     setView("edit");
     showToast("Als Vorlage dupliziert ✓");
+  };
+  // Exportierte ZIP/PDF (z. B. aus SharePoint) wieder einlesen und bearbeiten
+  const handleImport = async (file) => {
+    if (!file) return;
+    let rep;
+    try {
+      setProgress({ step: "Bericht wird eingelesen…", percent: 30 });
+      rep = await importReportFile(file);
+    } catch (e) {
+      console.error("import failed:", e);
+      setProgress(null);
+      showToast("Import fehlgeschlagen:\n" + (e && e.message ? e.message : "unbekannter Fehler") + "\n\n(Tippen zum Schließen)", 12000);
+      return;
+    }
+    setProgress(null);
+    if (index.some(i => i.id === rep.id) &&
+        !window.confirm("Dieser Bericht ist auf diesem Gerät schon vorhanden.\nMit der importierten Datei überschreiben?")) {
+      return;
+    }
+    try {
+      await persist(rep);
+      const loaded = await loadReport(rep.id);
+      setCurrent(loaded || rep);
+      setCurrentFolder(folderName(rep.bauvorhaben));
+      setView("edit");
+      showToast("Bericht importiert ✓\nExport erfolgt als „…_korrigiert“", 7000);
+    } catch (e) {
+      console.error(e);
+      showToast(e && e.reason === "quota"
+        ? "Speicher voll – Bericht konnte nicht importiert werden"
+        : "Import: Speichern fehlgeschlagen", 10000);
+    }
   };
   const handleDeleteFolder = async (name) => {
     const toDelete = index.filter(it => folderName(it.bauvorhaben) === name);
@@ -2556,7 +2617,7 @@ export default function App() {
       {loading ? (
         <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", color: "#9a9b89" }}>Lädt…</div>
       ) : view === "folders" ? (
-        <FolderList folders={folders} onOpenFolder={openFolder} onNew={() => newReport()} onDeleteFolder={handleDeleteFolder} onOpenAll={() => setView("all")} />
+        <FolderList folders={folders} onOpenFolder={openFolder} onNew={() => newReport()} onDeleteFolder={handleDeleteFolder} onOpenAll={() => setView("all")} onImport={handleImport} />
       ) : view === "all" ? (
         <AllReports items={index} onOpen={openReport} onDelete={handleDelete} onBack={() => setView("folders")} onRetry={handleRetryUpload} />
       ) : view === "list" ? (
