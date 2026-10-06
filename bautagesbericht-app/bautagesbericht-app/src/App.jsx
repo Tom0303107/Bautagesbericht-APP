@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Plus, FileText, Trash2, Save, Download, ChevronLeft, Sun, CloudRain, Snowflake, Wind, ThermometerSnowflake, Check, X, Eraser, Share2, FolderOpen, Copy, ImagePlus, Camera, Upload, Star } from "lucide-react";
+import { Plus, FileText, Trash2, Save, Download, ChevronLeft, Sun, CloudRain, Snowflake, Wind, ThermometerSnowflake, Check, X, Eraser, Share2, FolderOpen, Copy, ImagePlus, Camera, Upload, Star, Clock } from "lucide-react";
 
 // ============================================================
 // Bau-Tagesbericht — Tablet-App für Zimmerei Schwaighofer GmbH
@@ -138,6 +138,30 @@ function hatFoto(r) {
   return Array.isArray(r && r.fotos) && r.fotos.some(f => f && f.id);
 }
 
+// ===== Regie: Pflichtfrage Ja/Nein =====
+// r.regie: "ja" | "nein" | null (noch nicht beantwortet)
+const REGIE_ORANGE = "#d97a00";
+function hatRegieEintraege(r) {
+  const l = Array.isArray(r && r.regieLeistungen) ? r.regieLeistungen : [];
+  const m = Array.isArray(r && r.regieMaterial) ? r.regieMaterial : [];
+  return l.some(it => it && (it.bezeichnung || it.personen || it.stunden)) ||
+         m.some(it => it && (it.bezeichnung || it.menge || it.einheit));
+}
+function regieStatus(r) {
+  if (r && (r.regie === "ja" || r.regie === "nein")) return r.regie;
+  return hatRegieEintraege(r) ? "ja" : null;
+}
+// Liefert einen Hinweistext, wenn der Bericht wegen Regie nicht versendet werden darf
+function regieFehler(r) {
+  const st = regieStatus(r);
+  if (!st) return "Bitte angeben, ob heute Regiearbeiten angefallen sind (Ja / Nein).";
+  if (st === "ja") {
+    const l = Array.isArray(r.regieLeistungen) ? r.regieLeistungen : [];
+    if (!l.some(it => it && (it.bezeichnung || "").trim())) return "Regiearbeiten „Ja“: bitte mindestens eine Regie-Leistung eintragen – oder „Nein“ wählen.";
+  }
+  return null;
+}
+
 // ===== Vorlagen Leistungsergebnisse =====
 // Antippen fügt einen Punkt in die Liste ein. Reihenfolge = Anzeige-Reihenfolge.
 // Neue Vorlage: einfach eine Zeile in Anführungszeichen mit Komma ergänzen.
@@ -219,6 +243,7 @@ const emptyReport = () => ({
   fahrzeuge: [],   // [{ id, name, std }]
   leistungsergebnisse: [""],   // Liste von Punkten
   behinderungen: [""],         // Behinderungen / Erschwernisse (Liste von Punkten)
+  regie: null,                 // "ja" | "nein" | null = noch nicht beantwortet
   material: [],                // [{ id, bezeichnung, menge, einheit }]
   regieLeistungen: [],         // [{ id, bezeichnung, personen, stunden }]
   regieMaterial: [],           // [{ id, bezeichnung, menge, einheit }]
@@ -400,6 +425,7 @@ async function loadReport(id) {
     if (!Array.isArray(rep.fotos)) rep.fotos = [];
     if (rep.techniker === undefined) rep.techniker = "";
     if (!Array.isArray(rep.behinderungen)) rep.behinderungen = [""];
+    if (rep.regie !== "ja" && rep.regie !== "nein") rep.regie = hatRegieEintraege(rep) ? "ja" : null;
     // Material/Regie-Material: String -> Liste
     const migrateMaterial = (val) => {
       if (Array.isArray(val)) return val;
@@ -1239,6 +1265,63 @@ function BauvorhabenAutocomplete({ value, onChange, suggestions }) {
   );
 }
 
+// Regie-Karte: auffällig, mit Pflichtfrage Ja/Nein
+function RegieKarte({ r, set }) {
+  const st = regieStatus(r);
+  const fehler = regieFehler(r);
+  const waehle = (v) => {
+    if (v === "nein" && hatRegieEintraege(r)) {
+      if (!window.confirm("Es sind bereits Regie-Einträge vorhanden. Bei „Nein“ werden sie entfernt. Fortfahren?")) return;
+      set({ regie: "nein", regieLeistungen: [], regieMaterial: [] });
+      return;
+    }
+    if (v === "ja" && (!Array.isArray(r.regieLeistungen) || r.regieLeistungen.length === 0)) {
+      // Gleich eine leere Zeile anlegen, damit sofort getippt werden kann
+      set({ regie: "ja", regieLeistungen: [{ id: "regie_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6), bezeichnung: "", personen: "", stunden: "" }] });
+      return;
+    }
+    set({ regie: v });
+  };
+  const knopf = (v, label) => {
+    const aktiv = st === v;
+    return (
+      <button type="button" onClick={() => waehle(v)}
+        style={{ flex: 1, padding: "14px 10px", fontSize: 18, fontWeight: 800, borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+          border: "3px solid " + (aktiv ? REGIE_ORANGE : "#e3c79a"), background: aktiv ? REGIE_ORANGE : "#fff", color: aktiv ? "#fff" : "#8a5a00" }}>
+        {aktiv && <Check size={18} style={{ verticalAlign: -3, marginRight: 6 }} />}{label}
+      </button>
+    );
+  };
+  return (
+    <div id="regie-feld" style={{ border: "3px solid " + REGIE_ORANGE, background: "#fff8ec", borderRadius: 16, padding: 16, marginBottom: 22 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 19, fontWeight: 800, color: "#8a5a00" }}>
+        <Clock size={24} color={REGIE_ORANGE} /> Regiearbeiten heute?
+      </div>
+      <p style={{ fontSize: 13, color: "#8a6a30", margin: "4px 0 12px" }}>Pflichtfeld – ohne Antwort kann der Bericht nicht versendet werden.</p>
+      <div style={{ display: "flex", gap: 10 }}>
+        {knopf("ja", "Ja")}
+        {knopf("nein", "Nein")}
+      </div>
+      {fehler && (
+        <p style={{ fontSize: 13, color: "#b04a4a", fontWeight: 600, margin: "10px 2px 0" }}>{fehler}</p>
+      )}
+      {st === "nein" && (
+        <p style={{ fontSize: 14, color: "#6b6c5c", margin: "12px 2px 0" }}>
+          <Check size={16} color={GREEN} style={{ verticalAlign: -3 }} /> Im PDF wird „Keine Regiearbeiten“ vermerkt.
+        </p>
+      )}
+      {st === "ja" && (
+        <div style={{ marginTop: 16 }}>
+          <Field label="Regie-Leistungen"><RegieLeistungList items={r.regieLeistungen} onChange={(v) => set({ regieLeistungen: v })} /></Field>
+          <Field label="Regie-Material">
+            <MaterialList items={r.regieMaterial} onChange={(v) => set({ regieMaterial: v })} placeholder="Bezeichnung des Regie-Materials…" />
+          </Field>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingFolders }) {
   const r = report;
   const set = (patch) => onChange({ ...r, ...patch });
@@ -1421,18 +1504,9 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
             vorlagen={LEISTUNG_VORLAGEN}
             vorlagenHinweis="Vorlage antippen fügt einen Punkt ein – danach z. B. Achse oder Geschoß dazuschreiben." />
         </Field>
-        <Field label="Behinderungen / Erschwernisse">
-          <BulletListInput listId="beh" items={r.behinderungen} onChange={(v) => set({ behinderungen: v })}
-            placeholder="z. B. Kran ab 10 Uhr nicht verfügbar, 2 Std. Wartezeit"
-            vorlagen={ERSCHWERNIS_VORLAGEN}
-            vorlagenHinweis="Nur ausfüllen, wenn es Behinderungen gab – erscheint sonst nicht im PDF." />
-        </Field>
+        <RegieKarte r={r} set={set} />
         <Field label="Material">
           <MaterialList items={r.material} onChange={(v) => set({ material: v })} placeholder="Bezeichnung des Materials…" />
-        </Field>
-        <Field label="Regie-Leistungen"><RegieLeistungList items={r.regieLeistungen} onChange={(v) => set({ regieLeistungen: v })} /></Field>
-        <Field label="Regie-Material">
-          <MaterialList items={r.regieMaterial} onChange={(v) => set({ regieMaterial: v })} placeholder="Bezeichnung des Regie-Materials…" />
         </Field>
 
         <div id="fotos-feld">
@@ -1445,6 +1519,13 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
             )}
           </Field>
         </div>
+
+        <Field label="Behinderungen / Erschwernisse">
+          <BulletListInput listId="beh" items={r.behinderungen} onChange={(v) => set({ behinderungen: v })}
+            placeholder="z. B. Kran ab 10 Uhr nicht verfügbar, 2 Std. Wartezeit"
+            vorlagen={ERSCHWERNIS_VORLAGEN}
+            vorlagenHinweis="Nur ausfüllen, wenn es Behinderungen gab – erscheint sonst nicht im PDF." />
+        </Field>
 
         <Field label="Unterschrift Bauführer/-leiter">
           <SignaturePad value={r.signature} onChange={(s) => set({ signature: s })} />
@@ -2029,10 +2110,12 @@ async function exportPDF(r, onProgress) {
     });
   };
   // Material-Block: kleine Tabelle Bezeichnung / Menge / Einheit
-  const materialBlock = (label, arr) => {
+  const materialBlock = (label, arr, labelColor) => {
     if (y > H - 110) { doc.addPage(); y = 50; }
     y += 6; doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    if (labelColor) doc.setTextColor(...labelColor);
     doc.text(label, ML, y); y += 14;
+    doc.setTextColor(40, 40, 30);
     const items = Array.isArray(arr) ? arr.filter(it => it && (it.bezeichnung || it.menge || it.einheit)) : [];
     if (items.length === 0) {
       doc.setFont("helvetica", "normal"); doc.setFontSize(10);
@@ -2118,11 +2201,14 @@ async function exportPDF(r, onProgress) {
     y += 26;
   };
   // Regie-Leistungen-Block: Bezeichnung / Personen / Stunden mit Gesamt
+  const REGIE_PDF = [200, 110, 0];
   const regieLeistungBlock = () => {
     const items = Array.isArray(r.regieLeistungen) ? r.regieLeistungen.filter(it => it && (it.bezeichnung || it.personen || it.stunden)) : [];
     if (y > H - 110) { doc.addPage(); y = 50; }
     y += 6; doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    doc.setTextColor(...REGIE_PDF);
     doc.text("Regie-Leistungen", ML, y); y += 14;
+    doc.setTextColor(40, 40, 30);
     if (items.length === 0) {
       doc.setFont("helvetica", "normal"); doc.setFontSize(10);
       doc.text("—", ML, y); y += 14; return;
@@ -2174,14 +2260,25 @@ async function exportPDF(r, onProgress) {
     y += 26;
   };
   bulletBlock("Leistungsergebnisse", r.leistungsergebnisse);
+  materialBlock("Material", r.material);
+  // Regie: bei „Nein“ ausdrücklich vermerken, sonst Tabellen (orange Überschriften)
+  if (regieStatus(r) === "nein") {
+    if (y > H - 80) { doc.addPage(); y = 50; }
+    y += 6; doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    doc.setTextColor(...REGIE_PDF);
+    doc.text("Regiearbeiten", ML, y); y += 15;
+    doc.setTextColor(40, 40, 30);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+    doc.text("Keine Regiearbeiten", ML, y); y += 14;
+  } else {
+    regieLeistungBlock();
+    materialBlock("Regie-Material", r.regieMaterial, REGIE_PDF);
+  }
+  fahrzeugBlock();
   // Behinderungen / Erschwernisse nur drucken, wenn etwas eingetragen ist
   if (Array.isArray(r.behinderungen) && r.behinderungen.some(p => p && p.trim())) {
     bulletBlock("Behinderungen / Erschwernisse", r.behinderungen, [176, 74, 74]);
   }
-  materialBlock("Material", r.material);
-  regieLeistungBlock();
-  materialBlock("Regie-Material", r.regieMaterial);
-  fahrzeugBlock();
 
   // Unterschrift
   if (y > H - 200) { doc.addPage(); y = 50; }
@@ -2575,6 +2672,14 @@ export default function App() {
         : "Speichern fehlgeschlagen");
       return;
     }
+    // Versand nur mit beantworteter Regie-Frage (Bericht ist trotzdem gespeichert)
+    const rf = regieFehler(saved);
+    if (rf) {
+      showToast(rf, 10000);
+      const el = document.getElementById("regie-feld");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     // Versand nur mit mindestens einem Foto (Bericht ist trotzdem gespeichert)
     if (!hatFoto(saved)) {
       showToast(FOTO_PFLICHT_TEXT, 10000);
@@ -2642,6 +2747,7 @@ export default function App() {
   const handleRetryUpload = async (id) => {
     const rep = await loadReport(id);
     if (!rep) { showToast("Bericht nicht gefunden"); return; }
+    { const rf = regieFehler(rep); if (rf) { showToast(rf + " Bericht dazu öffnen.", 10000); return; } }
     if (!hatFoto(rep)) { showToast(FOTO_PFLICHT_TEXT, 10000); return; }
     let out;
     try {
