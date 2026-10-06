@@ -2575,19 +2575,19 @@ async function shareBlob(blob, fileName, title) {
   return { shared: false };
 }
 
-// Ordnername für den Bauleiter: Zeichen entfernen, die SharePoint in
-// Ordnernamen nicht erlaubt. Leer → Sammelordner "_Ohne Bauleiter".
-function bauleiterOrdner(name) {
+// Ordnername für den zuständigen Techniker: Zeichen entfernen, die SharePoint in
+// Ordnernamen nicht erlaubt. Leer → Sammelordner "_Ohne Techniker".
+function technikerOrdner(name) {
   const clean = String(name || "")
     .replace(/[\\/:*?"<>|#%~&{}]/g, "")
     .replace(/\s+/g, " ")
     .replace(/^[\s.]+|[\s.]+$/g, "");
-  return clean || "_Ohne Bauleiter";
+  return clean || "_Ohne Techniker";
 }
 
 // Lädt einen Blob als Base64 an den Power-Automate-Flow hoch.
-// Der Flow legt die Datei im Unterordner des Bauleiters ab (Feld "bauleiter").
-async function uploadToCloud(blob, fileName, onProgress, bauleiter) {
+// Der Flow legt die Datei im Unterordner des Technikers ab (Feld "techniker").
+async function uploadToCloud(blob, fileName, onProgress, techniker) {
   if (!UPLOAD_URL) throw new Error("Keine Upload-URL hinterlegt");
   const prog = (percent, note, hint) => {
     if (typeof onProgress === "function") onProgress({ step: "Wird zu OneDrive hochgeladen…", percent, note, hint });
@@ -2604,7 +2604,7 @@ async function uploadToCloud(blob, fileName, onProgress, bauleiter) {
     reader.onerror = () => reject(reader.error || new Error("read failed"));
     reader.readAsDataURL(blob);
   });
-  const body = JSON.stringify({ fileName, fileContent: base64, bauleiter: bauleiterOrdner(bauleiter) });
+  const body = JSON.stringify({ fileName, fileContent: base64, techniker: technikerOrdner(techniker) });
   prog(10, "Verbindung wird aufgebaut");
   // XHR statt fetch, damit wir echten Upload-Fortschritt bekommen
   return await new Promise((resolve, reject) => {
@@ -2828,7 +2828,7 @@ export default function App() {
     // Weg 1: Automatischer Upload an Power Automate (OneDrive)
     if (UPLOAD_URL) {
       try {
-        await uploadToCloud(out.blob, out.fileName, setProgress, saved.bauführer);
+        await uploadToCloud(out.blob, out.fileName, setProgress, saved.techniker);
         setProgress(null);
         const stamp = Date.now();
         const savedUp = { ...saved, uploaded: true, uploadedAt: stamp, uploadedFileName: out.fileName, uploadError: "" };
@@ -2889,7 +2889,7 @@ export default function App() {
     }
     if (!UPLOAD_URL) { setProgress(null); showToast("Keine Upload-URL hinterlegt"); return; }
     try {
-      await uploadToCloud(out.blob, out.fileName, setProgress, rep.bauführer);
+      await uploadToCloud(out.blob, out.fileName, setProgress, rep.techniker);
       setProgress(null);
       const stamp = Date.now();
       const savedUp = { ...rep, uploaded: true, uploadedAt: stamp, uploadedFileName: out.fileName, uploadError: "" };
