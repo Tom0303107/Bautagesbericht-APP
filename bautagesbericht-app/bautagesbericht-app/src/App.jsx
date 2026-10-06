@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Plus, FileText, Trash2, Save, Download, ChevronLeft, Sun, CloudRain, Snowflake, Wind, ThermometerSnowflake, Check, X, Eraser, Share2, FolderOpen, Copy, ImagePlus, Camera, Upload, Star, Clock } from "lucide-react";
+import { Plus, FileText, Trash2, Save, Download, ChevronLeft, Sun, CloudRain, Snowflake, Wind, ThermometerSnowflake, Check, X, Eraser, Share2, FolderOpen, Copy, ImagePlus, Camera, Upload, Star, Clock, ChevronDown, ChevronUp, ChevronRight, Send } from "lucide-react";
 
 // ============================================================
 // Bau-Tagesbericht — Tablet-App für Zimmerei Schwaighofer GmbH
@@ -1265,6 +1265,45 @@ function BauvorhabenAutocomplete({ value, onChange, suggestions }) {
   );
 }
 
+// Aufklappbarer, nummerierter Abschnitt im Bericht.
+// status: "ok" (erledigt, grüner Haken) | "pflicht" (fehlt, blockiert Versand – orange) | "leer" (optional/noch leer – grau)
+function Abschnitt({ id, nr, titel, zusammenfassung, status, offen, onToggle, onWeiter, children }) {
+  const rand = status === "pflicht" ? REGIE_ORANGE : (offen ? "#c9cabb" : "#e3e3d4");
+  const kreisBg = status === "ok" ? "#eef7e6" : status === "pflicht" ? "#fff1dc" : "#f3f3ea";
+  const kreisFg = status === "ok" ? DARKGREEN : status === "pflicht" ? "#8a5a00" : "#6b6c5c";
+  const kreisRand = status === "ok" ? GREEN : status === "pflicht" ? REGIE_ORANGE : "#c9cabb";
+  return (
+    <div id={"abschnitt-" + id} style={{ background: "#fff", border: "2px solid " + rand, borderRadius: 16, marginBottom: 12, scrollMarginTop: 84 }}>
+      <button type="button" onClick={onToggle}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
+        <span style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 16, background: kreisBg, color: kreisFg, border: "2px solid " + kreisRand }}>
+          {status === "ok" ? <Check size={18} /> : nr}
+        </span>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 17, fontWeight: 800, color: INK }}>{titel}</span>
+          <span style={{ display: "block", fontSize: 13, color: status === "pflicht" ? "#a35f00" : "#6b6c5c", fontWeight: status === "pflicht" ? 700 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {zusammenfassung}
+          </span>
+        </span>
+        {offen ? <ChevronUp size={22} color="#6b6c5c" /> : <ChevronDown size={22} color="#6b6c5c" />}
+      </button>
+      {offen && (
+        <div style={{ padding: "6px 16px 16px", borderTop: "1px solid #f0f1e6" }}>
+          <div style={{ height: 10 }} />
+          {children}
+          {onWeiter && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+              <button type="button" onClick={onWeiter} style={{ ...btnGhost, borderColor: GREEN, color: DARKGREEN }}>
+                Weiter <ChevronRight size={18} />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Regie-Karte: auffällig, mit Pflichtfrage Ja/Nein
 function RegieKarte({ r, set }) {
   const st = regieStatus(r);
@@ -1293,16 +1332,13 @@ function RegieKarte({ r, set }) {
     );
   };
   return (
-    <div id="regie-feld" style={{ border: "3px solid " + REGIE_ORANGE, background: "#fff8ec", borderRadius: 16, padding: 16, marginBottom: 22 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 19, fontWeight: 800, color: "#8a5a00" }}>
-        <Clock size={24} color={REGIE_ORANGE} /> Regiearbeiten heute?
-      </div>
-      <p style={{ fontSize: 13, color: "#8a6a30", margin: "4px 0 12px" }}>Pflichtfeld – ohne Antwort kann der Bericht nicht versendet werden.</p>
+    <div id="regie-feld">
+      <div style={{ fontSize: 16, fontWeight: 700, color: "#8a5a00", marginBottom: 10 }}>Sind heute Regiearbeiten angefallen?</div>
       <div style={{ display: "flex", gap: 10 }}>
         {knopf("ja", "Ja")}
         {knopf("nein", "Nein")}
       </div>
-      {fehler && (
+      {fehler && st === "ja" && (
         <p style={{ fontSize: 13, color: "#b04a4a", fontWeight: 600, margin: "10px 2px 0" }}>{fehler}</p>
       )}
       {st === "nein" && (
@@ -1329,6 +1365,49 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
   const toggleW = (k) => set({ witterung: { ...r.witterung, [k]: !r.witterung[k] } });
   const favoriten = useFavoriten();
 
+  // Aufklapp-Zustand: neuer/leerer Bericht startet mit „Allgemein“ offen, sonst alles zu
+  const [offen, setOffen] = useState(() => (r.bauvorhaben ? null : "allgemein"));
+  const oeffne = (key) => {
+    setOffen(key);
+    if (key) setTimeout(() => {
+      const el = document.getElementById("abschnitt-" + key);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+  };
+  useEffect(() => {
+    const h = (e) => oeffne(e.detail);
+    window.addEventListener("btb-abschnitt", h);
+    return () => window.removeEventListener("btb-abschnitt", h);
+  }, []);
+  const toggle = (key) => (offen === key ? setOffen(null) : oeffne(key));
+
+  // Zusammenfassungen / Status je Abschnitt
+  const datumTxt = r.datum ? r.datum.split("-").reverse().join(".") : "";
+  const anzPers = ["vorarbeiter", "facharbeiter", "lehrling"].reduce((n, k) => n + namesFromString(r.arbeiter?.[k]?.namen).length, 0);
+  const fz = (Array.isArray(r.fahrzeuge) ? r.fahrzeuge : []).filter(f => f && f.name);
+  const fzStd = fz.reduce((sum, f) => sum + parseNum(f.std), 0);
+  const leist = (Array.isArray(r.leistungsergebnisse) ? r.leistungsergebnisse : []).filter(x => x && x.trim());
+  const mat = (Array.isArray(r.material) ? r.material : []).filter(it => it && it.bezeichnung);
+  const beh = (Array.isArray(r.behinderungen) ? r.behinderungen : []).filter(x => x && x.trim());
+  const nFotos = (Array.isArray(r.fotos) ? r.fotos : []).filter(f => f && f.id).length;
+  const rSt = regieStatus(r);
+  const rFehler = regieFehler(r);
+  const regieStd = (Array.isArray(r.regieLeistungen) ? r.regieLeistungen : []).reduce((sum, it) => {
+    const std = parseNum(it && it.stunden); const per = parseNum(it && it.personen);
+    return sum + std * (per > 0 ? per : 1);
+  }, 0);
+  const allgemeinOk = !!(r.datum && (r.bauvorhaben || "").trim() && r.bauführer);
+  const ABSCHNITTE = ["allgemein", "mannschaft", "fahrzeuge", "leistung", "behinderungen", "fotos", "regie", "unterschrift"];
+  const weiter = (key) => () => oeffne(ABSCHNITTE[ABSCHNITTE.indexOf(key) + 1] || null);
+  const sec = (key, nr, titel, zusammenfassung, status) => ({
+    id: key, nr, titel, zusammenfassung, status, offen: offen === key, onToggle: () => toggle(key),
+    onWeiter: key === "unterschrift" ? null : weiter(key),
+  });
+  const fehlt = [
+    !hatFoto(r) && ["fotos", "Fotos"],
+    rFehler && ["regie", "Regiearbeiten"],
+  ].filter(Boolean);
+
   const arbRows = [
     ["vorarbeiter",  "Vorarbeiter",   VORARBEITER_LIST,  "multi", null],
     ["facharbeiter", "Facharbeiter",  FACHARBEITER_LIST, "multi", FACHARBEITER_GRUPPEN],
@@ -1336,20 +1415,16 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
   ];
 
   return (
-    <div className="edit-page" style={{ paddingBottom: 120 }}>
+    <div className="edit-page" style={{ paddingBottom: 140 }}>
       {/* top bar */}
-      <div className="topbar" style={{ position: "sticky", top: 0, zIndex: 10, background: "#fbfbf4", borderBottom: "2px solid #e3e3d4", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+      <div className="topbar" style={{ position: "sticky", top: 0, zIndex: 10, background: "#fbfbf4", borderBottom: "2px solid #e3e3d4", padding: "12px 16px", display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
         <button onClick={onBack} style={btnGhost}><ChevronLeft size={20} /> Zurück</button>
         <div style={{ flex: 1 }} />
-        <button onClick={onSave} style={{ ...btnGhost, background: GREEN, color: "#fff", borderColor: GREEN, padding: "12px 22px", fontSize: 16 }}>
-          <Save size={18} /> Speichern
-        </button>
-        <button onClick={onShare} style={{ ...btnGhost, background: "#0078d4", color: "#fff", borderColor: "#0078d4", padding: "12px 18px", fontSize: 16 }}
-          title="Bericht über das Teilen-Menü an OneDrive senden">
-          <Share2 size={18} /> An OneDrive
-        </button>
-        <button onClick={onExport} style={{ ...btnGhost, borderColor: DARKGREEN, color: DARKGREEN, padding: "12px 18px", fontSize: 16 }}>
+        <button onClick={onExport} title="PDF erstellen" style={{ ...btnGhost, borderColor: "#c9cabb", color: "#6b6c5c", padding: "12px 14px", fontSize: 15 }}>
           <Download size={18} /> PDF
+        </button>
+        <button onClick={onSave} style={{ ...btnGhost, background: GREEN, color: "#fff", borderColor: GREEN, padding: "12px 18px", fontSize: 16 }}>
+          <Save size={18} /> Speichern
         </button>
       </div>
 
@@ -1359,14 +1434,14 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
             Nachträglich bearbeiteter Bericht – wird als „…_korrigiert“ exportiert und im PDF vermerkt.
           </div>
         )}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
-          <div>
-            <h2 style={{ fontFamily: "Oswald, sans-serif", fontSize: 30, color: INK, margin: "0 0 4px", textTransform: "uppercase", letterSpacing: 1 }}>Bau-Tagesbericht</h2>
-          </div>
-          <Logo />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <h2 style={{ fontFamily: "Oswald, sans-serif", fontSize: 20, color: INK, margin: 0, textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "nowrap" }}>Bau-Tagesbericht</h2>
+          <Logo small />
         </div>
-        <div style={{ height: 2, background: "#e3e3d4", margin: "16px 0 24px" }} />
 
+        <Abschnitt {...sec("allgemein", 1, "Allgemein",
+          allgemeinOk ? [datumTxt, r.bauvorhaben, r.bauführer].filter(Boolean).join(" · ") : "Bauvorhaben und Bauführer eintragen",
+          allgemeinOk ? "ok" : "leer")}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
           <div style={{ flex: "0 0 200px" }}>
             <Field label="Datum">
@@ -1417,6 +1492,11 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
           </div>
         </Field>
 
+        </Abschnitt>
+
+        <Abschnitt {...sec("mannschaft", 2, "Mannschaft und Stunden",
+          anzPers ? `${anzPers} ${anzPers === 1 ? "Person" : "Personen"} · ${fmtHours(totalHours(r.arbeiter))} Std.` : "Noch niemand ausgewählt",
+          anzPers ? "ok" : "leer")}>
         <Field label="Anzahl der beschäftigten Arbeiter">
           <div style={{ display: "grid", gap: 14 }}>
             {arbRows.map(([key, lbl, opts, mode, gruppen]) => {
@@ -1489,47 +1569,88 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
               <div style={{ fontWeight: 800, fontSize: 20, color: DARKGREEN }}>{fmtHours(totalHours(r.arbeiter))} Std.</div>
             </div>
           </div>
-          <p style={{ fontSize: 12, color: "#9a9b89", margin: "8px 2px 0" }}>
-            Stunden können pro Person eingetragen werden. Mit „Alle setzen" lassen sich alle Stunden einer Kategorie auf denselben Wert stellen.
-          </p>
         </Field>
+        </Abschnitt>
 
-        <Field label="Fahrzeuge / Hebegeräte">
+        <Abschnitt {...sec("fahrzeuge", 3, "Fahrzeuge / Hebegeräte",
+          fz.length ? `${fz.map(f => f.name).join(", ")} · ${fmtHours(fzStd)} Std.` : "Keine (optional)",
+          fz.length ? "ok" : "leer")}>
           <FahrzeugList items={r.fahrzeuge} onChange={(v) => set({ fahrzeuge: v })} />
-        </Field>
+        </Abschnitt>
 
+        <Abschnitt {...sec("leistung", 4, "Leistung und Material",
+          leist.length ? `${leist.slice(0, 3).join(", ")}${leist.length > 3 ? " …" : ""}${mat.length ? ` · ${mat.length} Material` : ""}` : "Noch keine Leistung eingetragen",
+          leist.length ? "ok" : "leer")}>
         <Field label="Leistungsergebnisse">
           <BulletListInput listId="leist" items={r.leistungsergebnisse} onChange={(v) => set({ leistungsergebnisse: v })}
             placeholder="Durchgeführte Arbeit eintragen…"
             vorlagen={LEISTUNG_VORLAGEN}
-            vorlagenHinweis="Vorlage antippen fügt einen Punkt ein – danach z. B. Achse oder Geschoß dazuschreiben." />
+            />
         </Field>
-        <RegieKarte r={r} set={set} />
         <Field label="Material">
           <MaterialList items={r.material} onChange={(v) => set({ material: v })} placeholder="Bezeichnung des Materials…" />
         </Field>
 
-        <div id="fotos-feld">
-          <Field label="Fotos zum Baufortschritt (mind. 1 Foto zum Versenden)">
-            <PhotoUpload fotos={r.fotos} onChange={(v) => set({ fotos: v })} />
-            {!hatFoto(r) && (
-              <p style={{ fontSize: 13, color: "#b04a4a", fontWeight: 600, margin: "8px 2px 0" }}>
-                Noch kein Foto – der Bericht kann erst mit mindestens einem Foto an OneDrive gesendet werden.
-              </p>
-            )}
-          </Field>
-        </div>
+        </Abschnitt>
 
-        <Field label="Behinderungen / Erschwernisse">
+        <Abschnitt {...sec("behinderungen", 5, "Behinderungen / Erschwernisse",
+          beh.length ? beh.join(", ") : "Keine (optional)",
+          beh.length ? "ok" : "leer")}>
           <BulletListInput listId="beh" items={r.behinderungen} onChange={(v) => set({ behinderungen: v })}
             placeholder="z. B. Kran ab 10 Uhr nicht verfügbar, 2 Std. Wartezeit"
-            vorlagen={ERSCHWERNIS_VORLAGEN}
-            vorlagenHinweis="Nur ausfüllen, wenn es Behinderungen gab – erscheint sonst nicht im PDF." />
-        </Field>
+            vorlagen={ERSCHWERNIS_VORLAGEN} />
+        </Abschnitt>
 
-        <Field label="Unterschrift Bauführer/-leiter">
+        <Abschnitt {...sec("fotos", 6, "Fotos",
+          nFotos ? `${nFotos} ${nFotos === 1 ? "Foto" : "Fotos"}` : "Fehlt – mind. 1 Foto zum Versenden",
+          nFotos ? "ok" : "pflicht")}>
+          <div id="fotos-feld">
+            <PhotoUpload fotos={r.fotos} onChange={(v) => set({ fotos: v })} />
+          </div>
+        </Abschnitt>
+
+        <Abschnitt {...sec("regie", 7, "Regiearbeiten",
+          rSt === "nein" ? "Keine Regiearbeiten"
+            : rSt === "ja" ? (rFehler ? "Ja – Regie-Leistung fehlt noch" : `Ja · ${fmtHours(regieStd)} Std.`)
+            : "Ja / Nein noch offen – Pflichtfeld",
+          rFehler ? "pflicht" : "ok")}>
+          <RegieKarte r={r} set={set} />
+        </Abschnitt>
+
+        <Abschnitt {...sec("unterschrift", 8, "Unterschrift",
+          r.signature ? "Unterschrieben" : "Noch nicht unterschrieben",
+          r.signature ? "ok" : "leer")}>
           <SignaturePad value={r.signature} onChange={(s) => set({ signature: s })} />
-        </Field>
+        </Abschnitt>
+      </div>
+
+      {/* Leiste unten: was fehlt noch + Senden */}
+      <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 20, background: "#fbfbf4", borderTop: "2px solid #e3e3d4", padding: "10px 14px calc(10px + env(safe-area-inset-bottom))" }}>
+        <div style={{ maxWidth: 860, margin: "0 auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {fehlt.length ? (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#8a5a00", marginBottom: 4 }}>Noch offen:</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {fehlt.map(([key, label]) => (
+                    <button key={key} type="button" onClick={() => oeffne(key)}
+                      style={{ padding: "6px 10px", borderRadius: 999, border: "2px solid " + REGIE_ORANGE, background: "#fff1dc", color: "#8a5a00", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: 14, fontWeight: 700, color: DARKGREEN, display: "flex", alignItems: "center", gap: 6 }}>
+                <Check size={18} /> Bereit zum Senden
+              </div>
+            )}
+          </div>
+          <button onClick={onShare} title="Bericht an OneDrive senden"
+            style={{ ...btnGhost, background: fehlt.length ? "#9fb7cf" : "#0078d4", color: "#fff", borderColor: fehlt.length ? "#9fb7cf" : "#0078d4", padding: "14px 18px", fontSize: 16, flexShrink: 0 }}>
+            <Send size={18} /> Senden
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -2676,15 +2797,13 @@ export default function App() {
     const rf = regieFehler(saved);
     if (rf) {
       showToast(rf, 10000);
-      const el = document.getElementById("regie-feld");
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.dispatchEvent(new CustomEvent("btb-abschnitt", { detail: "regie" }));
       return;
     }
     // Versand nur mit mindestens einem Foto (Bericht ist trotzdem gespeichert)
     if (!hatFoto(saved)) {
       showToast(FOTO_PFLICHT_TEXT, 10000);
-      const el = document.getElementById("fotos-feld");
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.dispatchEvent(new CustomEvent("btb-abschnitt", { detail: "fotos" }));
       return;
     }
     let out;
@@ -2903,7 +3022,7 @@ export default function App() {
           .pill button { min-height: 28px !important; }
 
           /* Padding an den Rändern des Editors reduzieren, damit mehr Inhalt sichtbar ist */
-          .edit-page { padding: 12px 12px 100px !important; }
+          .edit-page { padding: 12px 12px 140px !important; }
 
           /* Top-Bar (Speichern/OneDrive/PDF): Knöpfe komfortabel und immer sichtbar */
           .topbar button { font-size: 14px !important; padding: 10px 14px !important; }
@@ -2935,7 +3054,7 @@ export default function App() {
         <div
           onClick={() => setToast("")}
           style={{
-            position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)",
+            position: "fixed", bottom: 120, left: "50%", transform: "translateX(-50%)",
             maxWidth: "92vw",
             background: INK, color: "#fff",
             padding: "14px 22px", borderRadius: 16,
