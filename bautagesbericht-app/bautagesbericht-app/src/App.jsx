@@ -565,6 +565,27 @@ async function deleteReport(id) {
   } catch (e) { console.error("cleanup originals:", e); }
 }
 
+// Nach erfolgreichem Upload: Export-Fotos aus der IndexedDB freigeben.
+// Der Bericht selbst (Text + 1280-px-Vorschauen) bleibt am Handy einsehbar;
+// nur die großen Export-Versionen werden gelöscht, damit der Speicher nicht volläuft.
+// Liefert den Bericht ohne originalUrl/hasOriginal zurück (zum Speichern).
+async function freeOriginals(rep) {
+  if (!rep || !Array.isArray(rep.fotos)) return rep;
+  const fotos = [];
+  for (const f of rep.fotos) {
+    if (!f) continue;
+    const copy = { ...f };
+    if (copy.originalUrl || copy.hasOriginal) {
+      try { await idbDelete("orig:" + rep.id + ":" + copy.id); } catch (e) { console.error("freeOriginals:", e); }
+      delete copy.originalUrl;
+      copy.hasOriginal = false;
+      copy.originalFreed = true;
+    }
+    fotos.push(copy);
+  }
+  return { ...rep, fotos };
+}
+
 // ============================================================
 // Signature pad
 // ============================================================
@@ -980,7 +1001,7 @@ async function fileToCompressedDataURL(file, maxDim = 1280, quality = 0.78) {
   });
 }
 
-// Liest das Original als DataURL ein – wird beim Export in voller Qualität exportiert.
+// Liest das Original als DataURL ein (nur noch Notfall-Fallback, falls die Verkleinerung scheitert).
 async function fileToOriginalDataURL(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -988,6 +1009,20 @@ async function fileToOriginalDataURL(file) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+// Export-Version des Fotos: lange Kante max. 2000 px, JPEG 82 %.
+// Statt 3–8 MB pro Handyfoto bleiben ~300–700 KB – reicht für Baudoku und PDF
+// und hält ZIP-Upload (Power-Automate-Limit) und Handy-Speicher klein.
+const EXPORT_MAX_DIM = 2000;
+const EXPORT_QUALITY = 0.82;
+async function fileToExportDataURL(file) {
+  try {
+    return await fileToCompressedDataURL(file, EXPORT_MAX_DIM, EXPORT_QUALITY);
+  } catch (e) {
+    console.warn("Foto-Verkleinerung fehlgeschlagen, Original wird verwendet:", e);
+    return fileToOriginalDataURL(file);
+  }
 }
 
 function PhotoUpload({ fotos, onChange }) {
@@ -1002,14 +1037,14 @@ function PhotoUpload({ fotos, onChange }) {
       try {
         const [dataUrl, originalUrl] = await Promise.all([
           fileToCompressedDataURL(f),
-          fileToOriginalDataURL(f),
+          fileToExportDataURL(f),
         ]);
         additions.push({
           id: "foto_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
-          dataUrl,           // klein, für Vorschau + PDF
-          originalUrl,       // Original, für ZIP-Export
+          dataUrl,           // klein (1280 px), für Vorschau + PDF
+          originalUrl,       // Export-Version (2000 px JPEG), für ZIP-Export
           originalName: f.name || "foto.jpg",
-          originalType: f.type || "image/jpeg",
+          originalType: "image/jpeg",
           kommentar: "",
         });
       } catch (err) { console.error(err); }
@@ -1999,7 +2034,7 @@ function base64ToUtf8(b64) {
 function reportToTransfer(r, fotoNames) {
   const { uploaded, uploadedAt, uploadedFileName, uploadError, uploadTriedAt, ...rest } = r;
   const fotos = (Array.isArray(r.fotos) ? r.fotos : []).filter(Boolean).map(f => {
-    const { originalUrl, hasOriginal, hasPreview, ...fr } = f;
+    const { originalUrl, hasOriginal, hasPreview, originalFreed, exportUrl, ...fr } = f;
     return { ...fr, zipFile: (fotoNames && fotoNames[f.id]) || null };
   });
   return { format: "btb-bericht", version: 1, exportiertAm: Date.now(), bericht: { ...rest, fotos } };
@@ -2493,7 +2528,11 @@ async function exportPDF(r, onProgress) {
   const vorarbeiterTeil = sanitize(ersterVorarbeiter);
   const baseName  = `${baustelle}_${datumTMJ}${vorarbeiterTeil ? "_" + vorarbeiterTeil : ""}${r.bueroKorrektur ? "_korrigiert" : ""}`;
   const pdfName   = `${baseName}.pdf`;
-  const fotosVoll = Array.isArray(r.fotos) ? r.fotos.filter(f => f && f.originalUrl) : [];
+  // Export-Version bevorzugen; wurde sie nach dem Upload bereits freigegeben,
+  // dient die Vorschau (1280 px) als Ersatz – so entsteht weiterhin genau ein ZIP.
+  const fotosVoll = Array.isArray(r.fotos)
+    ? r.fotos.filter(f => f && (f.originalUrl || f.dataUrl)).map(f => ({ ...f, exportUrl: f.originalUrl || f.dataUrl }))
+    : [];
 
   // Wenn keine Fotos: nur PDF
   if (fotosVoll.length === 0) {
@@ -2515,7 +2554,7 @@ async function exportPDF(r, onProgress) {
   const fotosOrdner = zip.folder("Fotos");
   for (let i = 0; i < fotosVoll.length; i++) {
     const foto = fotosVoll[i];
-    const dataUrl = foto.originalUrl;
+    const dataUrl = foto.exportUrl;
     const comma = dataUrl.indexOf(",");
     const meta = dataUrl.substring(5, comma);
     const isBase64 = meta.includes("base64");
@@ -2750,7 +2789,7 @@ export default function App() {
     } catch (e) {
       console.error("Speicherfehler:", e, "Reason:", e && e.reason, "Detail:", e && e.detail);
       if (e && e.reason === "quota") {
-        showToast("Speicher voll – bitte Fotos verkleinern oder alte Berichte löschen", 8000);
+        showToast("Speicher voll – bitte fertige Berichte hochladen (gibt Fotospeicher frei) oder alte Berichte löschen", 10000);
       } else if (e && e.detail) {
         showToast("Speichern fehlgeschlagen:\n" + String(e.detail).substring(0, 200), 10000);
       } else {
@@ -2831,7 +2870,8 @@ export default function App() {
         await uploadToCloud(out.blob, out.fileName, setProgress, saved.techniker);
         setProgress(null);
         const stamp = Date.now();
-        const savedUp = { ...saved, uploaded: true, uploadedAt: stamp, uploadedFileName: out.fileName, uploadError: "" };
+        // Export-Fotos nach erfolgreichem Upload vom Handy freigeben (Speicher)
+        const savedUp = await freeOriginals({ ...saved, uploaded: true, uploadedAt: stamp, uploadedFileName: out.fileName, uploadError: "" });
         try {
           await persist(savedUp);
           setCurrent(savedUp);
@@ -2892,7 +2932,7 @@ export default function App() {
       await uploadToCloud(out.blob, out.fileName, setProgress, rep.techniker);
       setProgress(null);
       const stamp = Date.now();
-      const savedUp = { ...rep, uploaded: true, uploadedAt: stamp, uploadedFileName: out.fileName, uploadError: "" };
+      const savedUp = await freeOriginals({ ...rep, uploaded: true, uploadedAt: stamp, uploadedFileName: out.fileName, uploadError: "" });
       await persist(savedUp);
       showToast("An OneDrive hochgeladen ✓", 6000);
     } catch (e) {
