@@ -482,64 +482,105 @@ async function loadReport(id) {
     return rep; // Trotzdem zurückgeben, damit der Bericht öffnet
   }
 }
-async function saveReport(rep) {
-  // Original-Fotos in IndexedDB auslagern, damit der Bericht klein bleibt.
-  // Im Bericht-JSON nur die kleine Vorschau (dataUrl) + Metadaten.
-  const fotosSchlank = [];
-  if (Array.isArray(rep.fotos)) {
-    for (const f of rep.fotos) {
-      if (!f) continue;
-      const copy = { ...f };
-      if (copy.originalUrl) {
-        try {
-          await idbSet("orig:" + rep.id + ":" + copy.id, copy.originalUrl);
-          copy.hasOriginal = true;
-        } catch (e) { console.error("idbSet original failed", e); }
-        delete copy.originalUrl;
-      }
-      fotosSchlank.push(copy);
+// Alle Bilddaten eines Berichts (Export-Version UND 1280-px-Vorschau) in die IndexedDB
+// auslagern. Im Bericht-JSON bleiben nur Text + Foto-Metadaten (ein paar KB).
+// Hintergrund (Okt. 2026): localStorage hat am Handy nur ~5 MB. Früher lag die Vorschau
+// (200–400 KB pro Foto) im Bericht-JSON – nach ~15–20 Fotos über alle Berichte war der
+// Speicher voll und kein Bericht mehr speicherbar ("Speicher voll – Bericht konnte nicht
+// gesichert werden"), obwohl in der IndexedDB noch hunderte MB frei waren.
+async function fotosAuslagern(rep) {
+  const out = [];
+  if (!Array.isArray(rep.fotos)) return out;
+  for (const f of rep.fotos) {
+    if (!f) continue;
+    const copy = { ...f };
+    if (copy.originalUrl) {
+      const ok = await idbSet("orig:" + rep.id + ":" + copy.id, copy.originalUrl);
+      if (ok) { copy.hasOriginal = true; delete copy.originalUrl; }
     }
+    if (copy.dataUrl) {
+      const ok = await idbSet("preview:" + rep.id + ":" + copy.id, copy.dataUrl);
+      if (ok) { copy.hasPreview = true; delete copy.dataUrl; }
+      // schlägt IDB fehl, bleibt die Vorschau ausnahmsweise im JSON (Notfall)
+    }
+    out.push(copy);
   }
-  const lean = { ...rep, fotos: fotosSchlank };
+  return out;
+}
 
-  // Versuch 1: ganz normal in localStorage
+function istQuotaFehler(e) {
+  return !!e && (
+    e.name === "QuotaExceededError" ||
+    e.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    (typeof e.message === "string" && /quota|exceed|storage/i.test(e.message))
+  );
+}
+
+async function saveReport(rep) {
+  const lean = { ...rep, fotos: await fotosAuslagern(rep) };
   try {
     await storage.set("btb:rep:" + rep.id, JSON.stringify(lean));
     return { ok: true };
   } catch (e1) {
-    console.error("saveReport try1 failed:", e1);
-    // Versuch 2: Wenn es nach Quota aussieht, auch die Foto-VORSCHAUEN in IDB auslagern.
-    const looksLikeQuota = e1 && (
-      e1.name === "QuotaExceededError" ||
-      (typeof e1.message === "string" && /quota|exceed|storage/i.test(e1.message))
-    );
-    if (looksLikeQuota && fotosSchlank.length > 0) {
+    console.error("saveReport failed:", e1);
+    if (!istQuotaFehler(e1)) {
+      return { ok: false, error: "other", detail: e1 && (e1.message || e1.name) || String(e1) };
+    }
+    // Quota trotz schlankem Bericht: alte Berichte (vor diesem Update) halten evtl. noch
+    // Vorschauen im localStorage. Einmal aufräumen und nochmal probieren.
+    try {
+      const freed = await vorschauenMigrieren(true);
+      console.warn("Speicher voll – Migration nachgeholt, freigegeben:", freed, "Zeichen");
+      await storage.set("btb:rep:" + rep.id, JSON.stringify(lean));
+      return { ok: true };
+    } catch (e2) {
+      console.error("saveReport retry failed:", e2);
+      return { ok: false, error: "quota", detail: e2 && e2.message };
+    }
+  }
+}
+
+// Einmalige Migration: Vorschauen (dataUrl) aus allen Berichten im localStorage in die
+// IndexedDB verschieben. Läuft beim App-Start und als Notfall bei Quota-Fehlern.
+// Gibt die Anzahl der freigegebenen Zeichen zurück.
+const MIGRATION_KEY = "btb:migration:previews";
+async function vorschauenMigrieren(force) {
+  try {
+    if (!force && window.localStorage.getItem(MIGRATION_KEY) === "1") return 0;
+    const keys = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith("btb:rep:")) keys.push(k);
+    }
+    let freed = 0;
+    for (const k of keys) {
+      let raw, rep;
+      try { raw = window.localStorage.getItem(k); rep = JSON.parse(raw); } catch { continue; }
+      if (!rep || !Array.isArray(rep.fotos)) continue;
+      const hatBilddaten = rep.fotos.some(f => f && (f.dataUrl || f.originalUrl));
+      if (!hatBilddaten) continue;
+      const lean = { ...rep, fotos: await fotosAuslagern(rep) };
+      const json = JSON.stringify(lean);
+      if (json.length >= raw.length) continue; // nichts gewonnen (IDB fehlgeschlagen)
       try {
-        const fotosUltraLean = [];
-        for (const f of fotosSchlank) {
-          const copy = { ...f };
-          if (copy.dataUrl) {
-            try {
-              await idbSet("preview:" + rep.id + ":" + copy.id, copy.dataUrl);
-              copy.hasPreview = true;
-            } catch (e) { console.error("idbSet preview failed", e); }
-            delete copy.dataUrl;
-          }
-          fotosUltraLean.push(copy);
-        }
-        const ultraLean = { ...lean, fotos: fotosUltraLean };
-        await storage.set("btb:rep:" + rep.id, JSON.stringify(ultraLean));
-        return { ok: true };
-      } catch (e2) {
-        console.error("saveReport try2 failed:", e2);
-        return { ok: false, error: "quota", detail: e2 && e2.message };
+        window.localStorage.setItem(k, json);
+        freed += raw.length - json.length;
+      } catch (e) {
+        // Überschreiben darf bei Quota scheitern, weil setItem kurzzeitig beides hält:
+        // dann erst löschen, dann neu schreiben (Daten liegen sicher in der IDB).
+        try {
+          window.localStorage.removeItem(k);
+          window.localStorage.setItem(k, json);
+          freed += raw.length - json.length;
+        } catch (e2) { console.error("Migration", k, e2); }
       }
     }
-    return {
-      ok: false,
-      error: looksLikeQuota ? "quota" : "other",
-      detail: e1 && (e1.message || e1.name) || String(e1),
-    };
+    try { window.localStorage.setItem(MIGRATION_KEY, "1"); } catch {}
+    if (freed > 0) console.info("Vorschauen-Migration: ~" + Math.round(freed / 1024) + " KB localStorage freigegeben");
+    return freed;
+  } catch (e) {
+    console.error("vorschauenMigrieren:", e);
+    return 0;
   }
 }
 async function deleteReport(id) {
@@ -2689,6 +2730,8 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
+      // Einmalig: Foto-Vorschauen alter Berichte aus dem localStorage in die IDB verschieben
+      await vorschauenMigrieren(false);
       const idx = await loadIndex();
       idx.sort((a, b) => b.updatedAt - a.updatedAt);
       setIndex(idx);
@@ -2811,8 +2854,8 @@ export default function App() {
     } catch (e) {
       console.error(e);
       showToast(e && e.reason === "quota"
-        ? "Speicher voll – Bericht konnte nicht gesichert werden"
-        : "Speichern fehlgeschlagen");
+        ? "Speicher voll – bitte fertige Berichte hochladen oder alte Berichte löschen"
+        : "Speichern fehlgeschlagen:\n" + String((e && e.detail) || "unbekannter Fehler").substring(0, 200), 10000);
       return;
     }
     const hasFotos = Array.isArray(saved.fotos) && saved.fotos.length > 0;
@@ -2838,8 +2881,8 @@ export default function App() {
     } catch (e) {
       console.error(e);
       showToast(e && e.reason === "quota"
-        ? "Speicher voll – Bericht konnte nicht gesichert werden"
-        : "Speichern fehlgeschlagen");
+        ? "Speicher voll – bitte fertige Berichte hochladen oder alte Berichte löschen"
+        : "Speichern fehlgeschlagen:\n" + String((e && e.detail) || "unbekannter Fehler").substring(0, 200), 10000);
       return;
     }
     // Versand nur mit beantworteter Regie-Frage (Bericht ist trotzdem gespeichert)
