@@ -138,6 +138,44 @@ function hatFoto(r) {
   return Array.isArray(r && r.fotos) && r.fotos.some(f => f && f.id);
 }
 
+// ===== Versand-Regel: zuständiger Techniker (Bauleiter) muss gewählt sein =====
+// Ohne Techniker kein Upload – sonst landet der Bericht in keinem Bauleiter-Ordner.
+const TECHNIKER_PFLICHT_TEXT = "Bitte den zuständigen Techniker (Bauleiter) auswählen – erst dann kann der Bericht versendet werden.";
+function hatTechniker(r) {
+  return !!String((r && r.techniker) || "").trim();
+}
+
+// ===== Versand-Regel: Bauvorhaben muss eingetragen sein =====
+const BAUVORHABEN_PFLICHT_TEXT = "Bitte das Bauvorhaben eintragen – erst dann kann der Bericht versendet werden.";
+function hatBauvorhaben(r) {
+  return !!String((r && r.bauvorhaben) || "").trim();
+}
+
+// ===== Versand-Regel: Mannschaft mit Stunden =====
+// Mindestens eine Person, und jede gewählte Person braucht eine Stundenangabe > 0.
+// Liefert die Namen ohne Stunden (für die Markierung im Formular).
+function namenOhneStunden(r) {
+  const arb = (r && r.arbeiter) || {};
+  const out = [];
+  Object.entries(arb).forEach(([key, a]) => {
+    if (key === "kraftfahrer" || !a) return;
+    namesFromString(a.namen).forEach(n => { if (!(hoursForName(a, n) > 0)) out.push(n); });
+  });
+  return out;
+}
+// Liefert einen Hinweistext, wenn der Bericht wegen fehlender Stunden nicht versendet werden darf
+function stundenFehler(r) {
+  const ohne = namenOhneStunden(r);
+  if (ohne.length) {
+    return "Stunden fehlen bei: " + ohne.slice(0, 4).join(", ") + (ohne.length > 4 ? ` und ${ohne.length - 4} weiteren` : "") +
+      " – bitte bei jeder Person die Stunden eintragen.";
+  }
+  if (!(totalHours((r && r.arbeiter) || {}) > 0)) {
+    return "Bitte unter „Mannschaft und Stunden“ mindestens eine Person mit Stunden eintragen – erst dann kann der Bericht versendet werden.";
+  }
+  return null;
+}
+
 // ===== Regie: Pflichtfrage Ja/Nein =====
 // r.regie: "ja" | "nein" | null (noch nicht beantwortet)
 const REGIE_ORANGE = "#d97a00";
@@ -1479,7 +1517,12 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
     id: key, nr, titel, zusammenfassung, status, offen: offen === key, onToggle: () => toggle(key),
     onWeiter: key === "unterschrift" ? null : weiter(key),
   });
+  const sFehler = stundenFehler(r);
+  const ohneStd = namenOhneStunden(r);
   const fehlt = [
+    !hatBauvorhaben(r) && ["allgemein", "Bauvorhaben"],
+    !hatTechniker(r) && ["allgemein-techniker", "Techniker (Bauleiter)"],
+    sFehler && ["mannschaft", "Stunden"],
     !hatFoto(r) && ["fotos", "Fotos"],
     rFehler && ["regie", "Regiearbeiten"],
   ].filter(Boolean);
@@ -1516,8 +1559,11 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
         </div>
 
         <Abschnitt {...sec("allgemein", 1, "Allgemein",
-          allgemeinOk ? [datumTxt, r.bauvorhaben, r.bauführer].filter(Boolean).join(" · ") : "Bauvorhaben und Bauführer eintragen",
-          allgemeinOk ? "ok" : "leer")}>
+          !hatBauvorhaben(r) && !hatTechniker(r) ? "Fehlt – Bauvorhaben und Techniker (Bauleiter) eintragen"
+            : !hatBauvorhaben(r) ? "Fehlt – Bauvorhaben zum Versenden eintragen"
+            : !hatTechniker(r) ? "Fehlt – Techniker (Bauleiter) zum Versenden wählen"
+            : allgemeinOk ? [datumTxt, r.bauvorhaben, r.bauführer].filter(Boolean).join(" · ") : "Bauvorhaben und Bauführer eintragen",
+          (!hatBauvorhaben(r) || !hatTechniker(r)) ? "pflicht" : allgemeinOk ? "ok" : "leer")}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
           <div style={{ flex: "0 0 200px" }}>
             <Field label="Datum">
@@ -1525,8 +1571,8 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
             </Field>
           </div>
         </div>
-        <Field label="Bauvorhaben"><BauvorhabenAutocomplete value={r.bauvorhaben} onChange={(v) => set({ bauvorhaben: v })} suggestions={existingFolders} /></Field>
-        <Field label="Zuständiger Techniker">
+        <Field label="Bauvorhaben – Pflichtfeld"><BauvorhabenAutocomplete value={r.bauvorhaben} onChange={(v) => set({ bauvorhaben: v })} suggestions={existingFolders} /></Field>
+        <Field label="Zuständiger Techniker (Bauleiter) – Pflichtfeld">
           <NativeSelect value={r.techniker} onChange={(v) => set({ techniker: v })}
             options={TECHNIKER_LIST}
             placeholder="Techniker wählen…" />
@@ -1571,8 +1617,10 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
         </Abschnitt>
 
         <Abschnitt {...sec("mannschaft", 2, "Mannschaft und Stunden",
-          anzPers ? `${anzPers} ${anzPers === 1 ? "Person" : "Personen"} · ${fmtHours(totalHours(r.arbeiter))} Std.` : "Noch niemand ausgewählt",
-          anzPers ? "ok" : "leer")}>
+          ohneStd.length ? `Fehlt – Stunden bei ${ohneStd.length} ${ohneStd.length === 1 ? "Person" : "Personen"} eintragen`
+            : sFehler ? "Fehlt – Mannschaft und Stunden zum Versenden eintragen"
+            : `${anzPers} ${anzPers === 1 ? "Person" : "Personen"} · ${fmtHours(totalHours(r.arbeiter))} Std.`,
+          sFehler ? "pflicht" : "ok")}>
         <Field label="Anzahl der beschäftigten Arbeiter">
           <div style={{ display: "grid", gap: 14 }}>
             {arbRows.map(([key, lbl, opts, mode, gruppen]) => {
@@ -1626,7 +1674,8 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
                               value={(a.stundenPro && a.stundenPro[n] !== undefined) ? a.stundenPro[n] : (a.std || "")}
                               onChange={e => setStundenPro(n, e.target.value)}
                               placeholder="Std."
-                              style={{ ...inputStyle, padding: "8px 10px", textAlign: "center", fontSize: 15, width: 80, flex: "0 0 auto" }}
+                              style={{ ...inputStyle, padding: "8px 10px", textAlign: "center", fontSize: 15, width: 80, flex: "0 0 auto",
+                                ...(hoursForName(a, n) > 0 ? {} : { borderColor: REGIE_ORANGE, background: "#fff1dc" }) }}
                             />
                             <span style={{ fontSize: 13, color: "#9a9b89", width: 26 }}>Std.</span>
                           </div>
@@ -1709,7 +1758,7 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
                 <div style={{ fontSize: 13, fontWeight: 700, color: "#8a5a00", marginBottom: 4 }}>Noch offen:</div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   {fehlt.map(([key, label]) => (
-                    <button key={key} type="button" onClick={() => oeffne(key)}
+                    <button key={key} type="button" onClick={() => oeffne(key.split("-")[0])}
                       style={{ padding: "6px 10px", borderRadius: 999, border: "2px solid " + REGIE_ORANGE, background: "#fff1dc", color: "#8a5a00", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
                       {label}
                     </button>
@@ -2669,6 +2718,8 @@ function technikerOrdner(name) {
 // Der Flow legt die Datei im Unterordner des Technikers ab (Feld "techniker").
 async function uploadToCloud(blob, fileName, onProgress, techniker) {
   if (!UPLOAD_URL) throw new Error("Keine Upload-URL hinterlegt");
+  // Letzte Sicherung: ohne Techniker/Bauleiter wird nichts hochgeladen
+  if (!String(techniker || "").trim()) throw new Error("Kein Techniker (Bauleiter) gewählt – Upload nicht möglich");
   const prog = (percent, note, hint) => {
     if (typeof onProgress === "function") onProgress({ step: "Wird zu OneDrive hochgeladen…", percent, note, hint });
   };
@@ -2885,6 +2936,25 @@ export default function App() {
         : "Speichern fehlgeschlagen:\n" + String((e && e.detail) || "unbekannter Fehler").substring(0, 200), 10000);
       return;
     }
+    // Versand nur mit eingetragenem Bauvorhaben (Bericht ist trotzdem gespeichert)
+    if (!hatBauvorhaben(saved)) {
+      showToast(BAUVORHABEN_PFLICHT_TEXT, 10000);
+      window.dispatchEvent(new CustomEvent("btb-abschnitt", { detail: "allgemein" }));
+      return;
+    }
+    // Versand nur mit gewähltem Techniker/Bauleiter (Bericht ist trotzdem gespeichert)
+    if (!hatTechniker(saved)) {
+      showToast(TECHNIKER_PFLICHT_TEXT, 10000);
+      window.dispatchEvent(new CustomEvent("btb-abschnitt", { detail: "allgemein" }));
+      return;
+    }
+    // Versand nur mit Mannschaft und Stunden je Person (Bericht ist trotzdem gespeichert)
+    const sf = stundenFehler(saved);
+    if (sf) {
+      showToast(sf, 10000);
+      window.dispatchEvent(new CustomEvent("btb-abschnitt", { detail: "mannschaft" }));
+      return;
+    }
     // Versand nur mit beantworteter Regie-Frage (Bericht ist trotzdem gespeichert)
     const rf = regieFehler(saved);
     if (rf) {
@@ -2959,6 +3029,9 @@ export default function App() {
   const handleRetryUpload = async (id) => {
     const rep = await loadReport(id);
     if (!rep) { showToast("Bericht nicht gefunden"); return; }
+    if (!hatBauvorhaben(rep)) { showToast(BAUVORHABEN_PFLICHT_TEXT + " Bericht dazu öffnen.", 10000); return; }
+    if (!hatTechniker(rep)) { showToast(TECHNIKER_PFLICHT_TEXT + " Bericht dazu öffnen.", 10000); return; }
+    { const sf = stundenFehler(rep); if (sf) { showToast(sf + " Bericht dazu öffnen.", 10000); return; } }
     { const rf = regieFehler(rep); if (rf) { showToast(rf + " Bericht dazu öffnen.", 10000); return; } }
     if (!hatFoto(rep)) { showToast(FOTO_PFLICHT_TEXT, 10000); return; }
     let out;
