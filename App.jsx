@@ -1,0 +1,3251 @@
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Plus, FileText, Trash2, Save, Download, ChevronLeft, Sun, CloudRain, Snowflake, Wind, ThermometerSnowflake, Check, X, Eraser, Share2, FolderOpen, Copy, ImagePlus, Camera, Upload, Star, Clock, ChevronDown, ChevronUp, ChevronRight, Send } from "lucide-react";
+
+// ============================================================
+// Bau-Tagesbericht — Tablet-App für Zimmerei Schwaighofer GmbH
+// ============================================================
+
+const GREEN = "#5BA83A";
+const DARKGREEN = "#3E7A28";
+const INK = "#1f2417";
+
+// Upload-URL für den Bautagesberichte-Flow (Power Automate → OneDrive)
+// Läuft direkt in den OneDrive-Ordner des Admin-Kontos, kein Login der Vorarbeiter nötig.
+const UPLOAD_URL = "https://default5f1877e2e25e45ffacad713b4d42f1.f1.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/29/workflows/bc308760667b4d68bfbc94af290453aa/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=eOi81OWVy9EpUbbLqWznVKxNURFDyPGviOp27op8XAw";
+
+// ===== Mitarbeiter-Datenbank =====
+// Format: "Nachname Vorname" + Tätigkeit
+const MITARBEITER = [
+  // Techniker (auch als Bauführer nutzbar)
+  { name: "Fahringer Michael",       taetigkeit: "Techniker" },
+  { name: "Grones Stefan",           taetigkeit: "Techniker" },
+  { name: "Heger Thomas",            taetigkeit: "Techniker" },
+  { name: "Löffler Peter",           taetigkeit: "Techniker" },
+  { name: "Neumann Tim",             taetigkeit: "Techniker" },
+  // Vorarbeiter
+  { name: "Achrainer Noel",          taetigkeit: "Vorarbeiter" },
+  { name: "Eberwein Christian",      taetigkeit: "Vorarbeiter" },
+  { name: "Eberwein Martin",         taetigkeit: "Vorarbeiter" },
+  { name: "Eder Thomas",             taetigkeit: "Vorarbeiter" },
+  { name: "Gruber Johannes",         taetigkeit: "Vorarbeiter" },
+  { name: "Gruber Josef",            taetigkeit: "Vorarbeiter" },
+  { name: "Horngacher Philipp",      taetigkeit: "Vorarbeiter" },
+  { name: "Koller Lukas",            taetigkeit: "Vorarbeiter" },
+  { name: "Kronbichler Thomas",      taetigkeit: "Vorarbeiter" },
+  { name: "Osterauer Markus",        taetigkeit: "Vorarbeiter" },
+  { name: "Pichler Markus",          taetigkeit: "Vorarbeiter" },
+  { name: "Schmid Helmut",           taetigkeit: "Vorarbeiter" },
+  { name: "Schwaiger Helmut",        taetigkeit: "Vorarbeiter" },
+  { name: "Schwaiger Thomas",        taetigkeit: "Vorarbeiter" },
+  { name: "Steiner Benjamin",        taetigkeit: "Vorarbeiter" },
+  // Facharbeiter
+  { name: "Aufhammer Robert",        taetigkeit: "Facharbeiter" },
+  { name: "Bachmann Philip",         taetigkeit: "Facharbeiter" },
+  { name: "Danner Matthias",         taetigkeit: "Facharbeiter" },
+  { name: "Eder Maximilian",         taetigkeit: "Facharbeiter" },
+  { name: "Heger Sebastian",         taetigkeit: "Facharbeiter" },
+  { name: "Huber Sander",            taetigkeit: "Facharbeiter" },
+  { name: "Kania Manuel",            taetigkeit: "Facharbeiter" },
+  { name: "Koller Markus",           taetigkeit: "Facharbeiter" },
+  { name: "Kronbichler Josef",       taetigkeit: "Facharbeiter" },
+  { name: "Miller Bastian",          taetigkeit: "Facharbeiter" },
+  { name: "Mittermaier Christoph",   taetigkeit: "Facharbeiter" },
+  { name: "Polin Reinhard",          taetigkeit: "Facharbeiter" },
+  { name: "Schächl Georg",           taetigkeit: "Facharbeiter" },
+  { name: "Schreder Sebastian",      taetigkeit: "Facharbeiter" },
+  { name: "Schwaiger Andreas",       taetigkeit: "Facharbeiter" },
+  { name: "Sedlak Justin",           taetigkeit: "Facharbeiter" },
+  { name: "Sieberer Johannes",       taetigkeit: "Facharbeiter" },
+  // Lehrlinge – Zusatzinfo in "lehrjahrLabel" wird beim Anzeigen an den Namen angehängt
+  { name: "Alletsgruber Mathias",    taetigkeit: "Lehrling", lehrjahrLabel: "2. LJ" },
+  { name: "Baumgartner Christoph",   taetigkeit: "Lehrling", lehrjahrLabel: "3. LJ" },
+  { name: "Baumgartner Elias",       taetigkeit: "Lehrling", lehrjahrLabel: "3. LJ" },
+  { name: "Müller Jürgen",           taetigkeit: "Lehrling", lehrjahrLabel: "2. LJ" },
+  { name: "Thies Laurens",           taetigkeit: "Lehrling", lehrjahrLabel: "1. LJ" },
+].sort((a, b) => a.name.localeCompare(b.name, "de"));
+
+const isLehrling     = (t) => /Lehrling/i.test(t);
+const isFacharbeiter = (t) => /Facharbeiter/i.test(t) && !isLehrling(t);
+const isEchterVorarbeiter = (t) => /Vorarbeiter|Polier/i.test(t) && !isLehrling(t);
+const isTechniker    = (t) => /Techniker/i.test(t) || /Tech(\.|nischer)?\s*Zeichner|Bauleiter|Meister/i.test(t);
+const isBuro         = (t) => /Büromitarbeiter/i.test(t);
+const isLager        = (t) => /Lagermitarbeiter/i.test(t);
+
+// Anzeigename: bei Lehrlingen "Name - X. LJ (Zusatz)", sonst reiner Name.
+const displayName = (m) => m.lehrjahrLabel ? `${m.name} - ${m.lehrjahrLabel}` : m.name;
+
+// Bauführer-Auswahl: gruppiert – zuerst Vorarbeiter, dann Facharbeiter, dann Techniker
+// (innerhalb jeder Gruppe alphabetisch). Favoriten des Handys stehen zusätzlich ganz oben.
+const BAUFUEHRER_GRUPPEN = [
+  ["Vorarbeiter",  MITARBEITER.filter(m => isEchterVorarbeiter(m.taetigkeit)).map(m => m.name)],
+  ["Facharbeiter", MITARBEITER.filter(m => isFacharbeiter(m.taetigkeit) && !isEchterVorarbeiter(m.taetigkeit)).map(m => m.name)],
+  ["Techniker",    MITARBEITER.filter(m => isTechniker(m.taetigkeit) && !isEchterVorarbeiter(m.taetigkeit) && !isFacharbeiter(m.taetigkeit)).map(m => m.name)],
+];
+const BAUFUEHRER_LIST = BAUFUEHRER_GRUPPEN.flatMap(([, namen]) => namen);
+
+// Vorarbeiter-Feld: NUR echte Vorarbeiter (kein Techniker, kein Lehrling)
+const VORARBEITER_LIST = MITARBEITER
+  .filter(m => isEchterVorarbeiter(m.taetigkeit))
+  .map(m => m.name);
+
+// Facharbeiter-Feld: Facharbeiter + alle echten Vorarbeiter
+const FACHARBEITER_LIST = MITARBEITER
+  .filter(m => isFacharbeiter(m.taetigkeit) || isEchterVorarbeiter(m.taetigkeit))
+  .map(m => m.name);
+// Gruppierte Anzeige im Facharbeiter-Feld: zuerst Facharbeiter, darunter Vorarbeiter
+const FACHARBEITER_GRUPPEN = [
+  ["Facharbeiter", MITARBEITER.filter(m => isFacharbeiter(m.taetigkeit) && !isEchterVorarbeiter(m.taetigkeit)).map(m => m.name)],
+  ["Vorarbeiter",  MITARBEITER.filter(m => isEchterVorarbeiter(m.taetigkeit)).map(m => m.name)],
+];
+
+// Lehrlings-Feld: alle Lehrlinge, ANZEIGENAME mit Lehrjahr
+const LEHRLINGE_LIST = MITARBEITER
+  .filter(m => isLehrling(m.taetigkeit))
+  .map(m => displayName(m));
+
+// LKW-Optionen (feste Auswahl)
+const LKW_OPTIONS = ["LKW 31 Tonnen", "LKW 24 Tonnen"];
+
+// Techniker-Auswahl (feste Reihenfolge alphabetisch)
+const TECHNIKER_LIST = [
+  "Fahringer Michael",
+  "Grones Stefan",
+  "Heger Thomas",
+  "Löffler Peter",
+  "Neumann Tim",
+  "Schwaighofer Andreas",
+];
+
+// Fahrzeuge/Hebegeräte
+const FAHRZEUGE_LIST = [
+  "LKW 31 Tonnen (Scania)",
+  "LKW 24 Tonnen (MAN)",
+  "Traktor STEYR",
+  "Traktor STEYR (Mulde)",
+  "Traktor STEYR (Auwärter)",
+  "Traktor STEYR (Hackenlift)",
+  "Stapler",
+  "Manitou",
+  "Arbeitsbühne",
+];
+
+// Mengeneinheiten
+const EINHEIT_LIST = ["lfm", "m²", "m³", "kg", "Tonnen", "Stk.", "Pkg.", "EH", "Rollen"];
+
+// ===== Versand-Regel: mindestens ein Foto =====
+const FOTO_PFLICHT_TEXT = "Bitte mindestens ein Foto hinzufügen – erst dann kann der Bericht versendet werden.";
+function hatFoto(r) {
+  return Array.isArray(r && r.fotos) && r.fotos.some(f => f && f.id);
+}
+
+// ===== Versand-Regel: zuständiger Techniker (Bauleiter) muss gewählt sein =====
+// Ohne Techniker kein Upload – sonst landet der Bericht in keinem Bauleiter-Ordner.
+const TECHNIKER_PFLICHT_TEXT = "Bitte den zuständigen Techniker (Bauleiter) auswählen – erst dann kann der Bericht versendet werden.";
+function hatTechniker(r) {
+  return !!String((r && r.techniker) || "").trim();
+}
+
+// ===== Versand-Regel: Bauvorhaben muss eingetragen sein =====
+const BAUVORHABEN_PFLICHT_TEXT = "Bitte das Bauvorhaben eintragen – erst dann kann der Bericht versendet werden.";
+function hatBauvorhaben(r) {
+  return !!String((r && r.bauvorhaben) || "").trim();
+}
+
+// ===== Versand-Regel: Mannschaft mit Stunden =====
+// Mindestens eine Person, und jede gewählte Person braucht eine Stundenangabe > 0.
+// Liefert die Namen ohne Stunden (für die Markierung im Formular).
+function namenOhneStunden(r) {
+  const arb = (r && r.arbeiter) || {};
+  const out = [];
+  Object.entries(arb).forEach(([key, a]) => {
+    if (key === "kraftfahrer" || !a) return;
+    namesFromString(a.namen).forEach(n => { if (!(hoursForName(a, n) > 0)) out.push(n); });
+  });
+  return out;
+}
+// Liefert einen Hinweistext, wenn der Bericht wegen fehlender Stunden nicht versendet werden darf
+function stundenFehler(r) {
+  const ohne = namenOhneStunden(r);
+  if (ohne.length) {
+    return "Stunden fehlen bei: " + ohne.slice(0, 4).join(", ") + (ohne.length > 4 ? ` und ${ohne.length - 4} weiteren` : "") +
+      " – bitte bei jeder Person die Stunden eintragen.";
+  }
+  if (!(totalHours((r && r.arbeiter) || {}) > 0)) {
+    return "Bitte unter „Mannschaft und Stunden“ mindestens eine Person mit Stunden eintragen – erst dann kann der Bericht versendet werden.";
+  }
+  return null;
+}
+
+// ===== Regie: Pflichtfrage Ja/Nein =====
+// r.regie: "ja" | "nein" | null (noch nicht beantwortet)
+const REGIE_ORANGE = "#d97a00";
+function hatRegieEintraege(r) {
+  const l = Array.isArray(r && r.regieLeistungen) ? r.regieLeistungen : [];
+  const m = Array.isArray(r && r.regieMaterial) ? r.regieMaterial : [];
+  return l.some(it => it && (it.bezeichnung || it.personen || it.stunden)) ||
+         m.some(it => it && (it.bezeichnung || it.menge || it.einheit));
+}
+function regieStatus(r) {
+  if (r && (r.regie === "ja" || r.regie === "nein")) return r.regie;
+  return hatRegieEintraege(r) ? "ja" : null;
+}
+// Liefert einen Hinweistext, wenn der Bericht wegen Regie nicht versendet werden darf
+function regieFehler(r) {
+  const st = regieStatus(r);
+  if (!st) return "Bitte angeben, ob heute Regiearbeiten angefallen sind (Ja / Nein).";
+  if (st === "ja") {
+    const l = Array.isArray(r.regieLeistungen) ? r.regieLeistungen : [];
+    if (!l.some(it => it && (it.bezeichnung || "").trim())) return "Regiearbeiten „Ja“: bitte mindestens eine Regie-Leistung eintragen – oder „Nein“ wählen.";
+  }
+  return null;
+}
+
+// ===== Vorlagen Leistungsergebnisse =====
+// Antippen fügt einen Punkt in die Liste ein. Reihenfolge = Anzeige-Reihenfolge.
+// Neue Vorlage: einfach eine Zeile in Anführungszeichen mit Komma ergänzen.
+const LEISTUNG_VORLAGEN = [
+  "Abbund",
+  "Verladen/Vorbereiten",
+  "Baustelle einrichten",
+  "Schwellen setzen",
+  "Wände montieren",
+  "Decke montieren",
+  "Dachkonstruktion montieren",
+  "Schalung",
+  "Unterdach/Folie",
+  "Lattung",
+  "Dämmung",
+  "Fassaden Lattung",
+  "Fassaden Dämmung",
+  "Fassaden Schalung",
+  "Aufräumen",
+];
+
+// ===== Schnellbausteine Behinderungen / Erschwernisse =====
+const ERSCHWERNIS_VORLAGEN = [
+  "Schlechtwetter",
+  "Wartezeit Material",
+  "Wartezeit Kran",
+  "Vorgewerk nicht fertig",
+  "Planänderung",
+  "Zufahrt erschwert",
+];
+
+// ===== Favoriten (pro Handy, im Browser-Speicher) =====
+// Jeder Vorarbeiter markiert sich (und ggf. seine Stammpartie) mit einem Stern.
+// Favoriten stehen in allen Auswahllisten ganz oben. Der erste Vorarbeiter-Favorit
+// wird bei einem neuen Bericht automatisch als Bauführer + Vorarbeiter eingetragen.
+const FAV_KEY = "btb-favoriten";
+const FAV_EVENT = "btb-favoriten-geaendert";
+function readFavoriten() {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(FAV_KEY) || "[]");
+    return Array.isArray(v) ? v.filter(x => typeof x === "string") : [];
+  } catch (e) { return []; }
+}
+function toggleFavorit(name) {
+  if (!name) return;
+  const cur = readFavoriten();
+  const next = cur.includes(name) ? cur.filter(n => n !== name) : [...cur, name];
+  try { window.localStorage.setItem(FAV_KEY, JSON.stringify(next)); } catch (e) {}
+  window.dispatchEvent(new Event(FAV_EVENT));
+}
+function useFavoriten() {
+  const [fav, setFav] = useState(readFavoriten);
+  useEffect(() => {
+    const h = () => setFav(readFavoriten());
+    window.addEventListener(FAV_EVENT, h);
+    return () => window.removeEventListener(FAV_EVENT, h);
+  }, []);
+  return fav;
+}
+const FAV_GOLD = "#d99a00";
+function FavStar({ active, size = 20 }) {
+  return <Star size={size} color={active ? FAV_GOLD : "#b8b9a8"} fill={active ? FAV_GOLD : "none"} />;
+}
+
+const LOGO = "data:image/jpeg;base64,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";
+
+const emptyReport = () => ({
+  id: "rep_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+  datum: new Date().toISOString().slice(0, 10),
+  bauvorhaben: "",
+  techniker: "",
+  bauführer: "",
+  witterung: { sonne: false, regen: false, frost: false, wind: false, schnee: false },
+  arbeiter: {
+    vorarbeiter:  { n: "", std: "", namen: "", stundenPro: {} },
+    facharbeiter: { n: "", std: "", namen: "", stundenPro: {} },
+    lehrling:     { n: "", std: "", namen: "", stundenPro: {} },
+  },
+  fahrzeuge: [],   // [{ id, name, std }]
+  leistungsergebnisse: [""],   // Liste von Punkten
+  behinderungen: [""],         // Behinderungen / Erschwernisse (Liste von Punkten)
+  regie: null,                 // "ja" | "nein" | null = noch nicht beantwortet
+  material: [],                // [{ id, bezeichnung, menge, einheit }]
+  regieLeistungen: [],         // [{ id, bezeichnung, personen, stunden }]
+  regieMaterial: [],           // [{ id, bezeichnung, menge, einheit }]
+  fotos: [],          // [{ id, dataUrl, kommentar }]
+  signature: null, // dataURL
+  updatedAt: Date.now(),
+});
+
+// ---------- helpers ----------
+function parseNum(v) {
+  if (v == null) return 0;
+  const n = parseFloat(String(v).replace(",", "."));
+  return isNaN(n) ? 0 : n;
+}
+// Gesamtstunden = Summe (Anzahl × Stunden) je Kategorie.
+// Wenn keine Anzahl angegeben ist, zählt die Stundenzahl einfach 1×.
+function countNamen(s) {
+  return (s || "").split(",").map(x => x.trim()).filter(Boolean).length;
+}
+function namesFromString(s) {
+  return (s || "").split(",").map(x => x.trim()).filter(Boolean);
+}
+// Stunden pro Mitarbeiter: nutzt Einzelwerte aus a.stundenPro[name], Fallback auf a.std
+function hoursForName(a, name) {
+  if (a && a.stundenPro && a.stundenPro[name] !== undefined && a.stundenPro[name] !== "") {
+    return parseNum(a.stundenPro[name]);
+  }
+  return parseNum(a && a.std);
+}
+function categoryTotal(a) {
+  if (!a) return 0;
+  const names = namesFromString(a.namen);
+  if (names.length === 0) {
+    // Fallback: alte Berichte ohne Namen, nutze Anzahl × Stunden
+    const std = parseNum(a.std);
+    const n = parseNum(a.n);
+    return std * (n > 0 ? n : 1);
+  }
+  return names.reduce((s, n) => s + hoursForName(a, n), 0);
+}
+function totalHours(arbeiter) {
+  return Object.entries(arbeiter).reduce((sum, [key, a]) => {
+    if (key === "kraftfahrer") return sum;
+    return sum + categoryTotal(a);
+  }, 0);
+}
+function fmtHours(h) {
+  // 2 Nachkommastellen, OHNE Rundung (Hundertstel werden abgeschnitten)
+  if (h == null || isNaN(h)) return "0,00";
+  const sign = h < 0 ? "-" : "";
+  const abs = Math.abs(h);
+  const truncated = Math.floor(abs * 100) / 100;
+  return sign + truncated.toFixed(2).replace(".", ",");
+}
+
+function Logo({ small }) {
+  return (
+    <img src={LOGO} alt="Zimmerei Schwaighofer GmbH"
+      style={{ height: small ? 44 : 70, width: "auto", display: "block", borderRadius: 6 }} />
+  );
+}
+
+// ---------- persistent storage helpers ----------
+const INDEX_KEY = "btb:index";
+
+// ---------- localStorage-Wrapper mit derselben API wie window.storage ----------
+// Echte Browser-API ist localStorage; wir verpacken sie in dieselbe async-Signatur,
+// damit der restliche Code unverändert läuft.
+const storage = {
+  async get(key) {
+    try {
+      const v = window.localStorage.getItem(key);
+      return v === null ? null : { value: v };
+    } catch (e) { console.error("storage.get:", e); return null; }
+  },
+  async set(key, value) {
+    // wirft bei Quota-Überschreitung, das ist gewollt (oben gefangen)
+    window.localStorage.setItem(key, value);
+    return true;
+  },
+  async delete(key) {
+    try { window.localStorage.removeItem(key); return true; }
+    catch (e) { console.error("storage.delete:", e); return false; }
+  },
+};
+
+// ---------- IndexedDB für Original-Fotos (umgeht localStorage 5-MB-Limit) ----------
+const IDB_NAME = "btb-originals";
+const IDB_STORE = "fotos";
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) return reject(new Error("IndexedDB nicht verfügbar"));
+    const req = window.indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSet(key, value) {
+  try {
+    const db = await idbOpen();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).put(value, key);
+      tx.oncomplete = () => { db.close(); resolve(true); };
+      tx.onerror = () => { db.close(); reject(tx.error); };
+    });
+  } catch (e) { console.error("idbSet:", e); return false; }
+}
+async function idbGet(key) {
+  try {
+    const db = await idbOpen();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).get(key);
+      req.onsuccess = () => { db.close(); resolve(req.result || null); };
+      req.onerror = () => { db.close(); reject(req.error); };
+    });
+  } catch (e) { console.error("idbGet:", e); return null; }
+}
+async function idbDelete(key) {
+  try {
+    const db = await idbOpen();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).delete(key);
+      tx.oncomplete = () => { db.close(); resolve(true); };
+      tx.onerror = () => { db.close(); resolve(false); };
+    });
+  } catch (e) { console.error("idbDelete:", e); return false; }
+}
+
+async function loadIndex() {
+  try {
+    const res = await storage.get(INDEX_KEY);
+    return res ? JSON.parse(res.value) : [];
+  } catch {
+    return [];
+  }
+}
+async function saveIndex(idx) {
+  try { await storage.set(INDEX_KEY, JSON.stringify(idx)); } catch (e) { console.error(e); }
+}
+async function loadReport(id) {
+  let res;
+  try {
+    res = await storage.get("btb:rep:" + id);
+  } catch (e) {
+    console.error("loadReport storage.get failed:", e);
+    return null;
+  }
+  if (!res) return null;
+  let rep;
+  try {
+    rep = JSON.parse(res.value);
+  } catch (e) {
+    console.error("loadReport JSON.parse failed:", e);
+    return null;
+  }
+  try {
+    // Migration: leistungsergebnisse von String -> Array
+    if (!Array.isArray(rep.leistungsergebnisse)) {
+      const str = (rep.leistungsergebnisse || "").trim();
+      rep.leistungsergebnisse = str ? str.split("\n").map(s => s.trim()).filter(Boolean) : [""];
+      if (rep.leistungsergebnisse.length === 0) rep.leistungsergebnisse = [""];
+    }
+    // Regie-Leistungen: String-Liste -> Objekt-Liste
+    if (!Array.isArray(rep.regieLeistungen)) {
+      rep.regieLeistungen = [];
+    } else if (rep.regieLeistungen.length > 0 && typeof rep.regieLeistungen[0] === "string") {
+      rep.regieLeistungen = rep.regieLeistungen
+        .filter(s => s && s.trim())
+        .map(s => ({ id: "regie_" + Math.random().toString(36).slice(2, 8), bezeichnung: s, personen: "", stunden: "" }));
+    }
+    if (!Array.isArray(rep.fotos)) rep.fotos = [];
+    if (rep.techniker === undefined) rep.techniker = "";
+    if (!Array.isArray(rep.behinderungen)) rep.behinderungen = [""];
+    if (rep.regie !== "ja" && rep.regie !== "nein") rep.regie = hatRegieEintraege(rep) ? "ja" : null;
+    // Material/Regie-Material: String -> Liste
+    const migrateMaterial = (val) => {
+      if (Array.isArray(val)) return val;
+      const s = (val || "").trim();
+      if (!s) return [];
+      return [{ id: "mat_" + Math.random().toString(36).slice(2, 8), bezeichnung: s, menge: "", einheit: "" }];
+    };
+    rep.material = migrateMaterial(rep.material);
+    rep.regieMaterial = migrateMaterial(rep.regieMaterial);
+    // Fahrzeuge: aus altem kraftfahrer-Eintrag übernehmen wenn vorhanden
+    if (!Array.isArray(rep.fahrzeuge)) {
+      const alt = rep.arbeiter?.kraftfahrer;
+      if (alt && (alt.namen || alt.std)) {
+        rep.fahrzeuge = [{ id: "fz_" + Math.random().toString(36).slice(2, 8), name: alt.namen || "", std: alt.std || "" }];
+      } else {
+        rep.fahrzeuge = [];
+      }
+    }
+    // kraftfahrer-Kategorie aus arbeiter entfernen (wird zu fahrzeuge)
+    if (rep.arbeiter && rep.arbeiter.kraftfahrer) {
+      const { kraftfahrer, ...rest } = rep.arbeiter;
+      rep.arbeiter = rest;
+    }
+    // Migration: namen-Feld und stundenPro in Arbeiter-Kategorien ergänzen
+    if (rep.arbeiter) {
+      Object.keys(rep.arbeiter).forEach(k => {
+        const a = rep.arbeiter[k];
+        if (a && a.namen === undefined) a.namen = "";
+        if (a && (a.stundenPro === undefined || a.stundenPro === null || typeof a.stundenPro !== "object" || Array.isArray(a.stundenPro))) {
+          a.stundenPro = {};
+        }
+      });
+    }
+    // Original-Fotos und ggf. ausgelagerte Vorschauen aus IDB nachladen
+    if (Array.isArray(rep.fotos) && rep.fotos.length > 0) {
+      for (const f of rep.fotos) {
+        if (f && f.hasOriginal && !f.originalUrl) {
+          try {
+            const orig = await idbGet("orig:" + rep.id + ":" + f.id);
+            if (orig) f.originalUrl = orig;
+          } catch (e) { console.error("idbGet orig:", e); }
+        }
+        if (f && f.hasPreview && !f.dataUrl) {
+          try {
+            const prev = await idbGet("preview:" + rep.id + ":" + f.id);
+            if (prev) f.dataUrl = prev;
+          } catch (e) { console.error("idbGet preview:", e); }
+        }
+      }
+    }
+    return rep;
+  } catch (e) {
+    console.error("loadReport migration failed:", e);
+    return rep; // Trotzdem zurückgeben, damit der Bericht öffnet
+  }
+}
+// Alle Bilddaten eines Berichts (Export-Version UND 1280-px-Vorschau) in die IndexedDB
+// auslagern. Im Bericht-JSON bleiben nur Text + Foto-Metadaten (ein paar KB).
+// Hintergrund (Okt. 2026): localStorage hat am Handy nur ~5 MB. Früher lag die Vorschau
+// (200–400 KB pro Foto) im Bericht-JSON – nach ~15–20 Fotos über alle Berichte war der
+// Speicher voll und kein Bericht mehr speicherbar ("Speicher voll – Bericht konnte nicht
+// gesichert werden"), obwohl in der IndexedDB noch hunderte MB frei waren.
+async function fotosAuslagern(rep) {
+  const out = [];
+  if (!Array.isArray(rep.fotos)) return out;
+  for (const f of rep.fotos) {
+    if (!f) continue;
+    const copy = { ...f };
+    if (copy.originalUrl) {
+      const ok = await idbSet("orig:" + rep.id + ":" + copy.id, copy.originalUrl);
+      if (ok) { copy.hasOriginal = true; delete copy.originalUrl; }
+    }
+    if (copy.dataUrl) {
+      const ok = await idbSet("preview:" + rep.id + ":" + copy.id, copy.dataUrl);
+      if (ok) { copy.hasPreview = true; delete copy.dataUrl; }
+      // schlägt IDB fehl, bleibt die Vorschau ausnahmsweise im JSON (Notfall)
+    }
+    out.push(copy);
+  }
+  return out;
+}
+
+function istQuotaFehler(e) {
+  return !!e && (
+    e.name === "QuotaExceededError" ||
+    e.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    (typeof e.message === "string" && /quota|exceed|storage/i.test(e.message))
+  );
+}
+
+async function saveReport(rep) {
+  const lean = { ...rep, fotos: await fotosAuslagern(rep) };
+  try {
+    await storage.set("btb:rep:" + rep.id, JSON.stringify(lean));
+    return { ok: true };
+  } catch (e1) {
+    console.error("saveReport failed:", e1);
+    if (!istQuotaFehler(e1)) {
+      return { ok: false, error: "other", detail: e1 && (e1.message || e1.name) || String(e1) };
+    }
+    // Quota trotz schlankem Bericht: alte Berichte (vor diesem Update) halten evtl. noch
+    // Vorschauen im localStorage. Einmal aufräumen und nochmal probieren.
+    try {
+      const freed = await vorschauenMigrieren(true);
+      console.warn("Speicher voll – Migration nachgeholt, freigegeben:", freed, "Zeichen");
+      await storage.set("btb:rep:" + rep.id, JSON.stringify(lean));
+      return { ok: true };
+    } catch (e2) {
+      console.error("saveReport retry failed:", e2);
+      return { ok: false, error: "quota", detail: e2 && e2.message };
+    }
+  }
+}
+
+// Einmalige Migration: Vorschauen (dataUrl) aus allen Berichten im localStorage in die
+// IndexedDB verschieben. Läuft beim App-Start und als Notfall bei Quota-Fehlern.
+// Gibt die Anzahl der freigegebenen Zeichen zurück.
+const MIGRATION_KEY = "btb:migration:previews";
+async function vorschauenMigrieren(force) {
+  try {
+    if (!force && window.localStorage.getItem(MIGRATION_KEY) === "1") return 0;
+    const keys = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith("btb:rep:")) keys.push(k);
+    }
+    let freed = 0;
+    for (const k of keys) {
+      let raw, rep;
+      try { raw = window.localStorage.getItem(k); rep = JSON.parse(raw); } catch { continue; }
+      if (!rep || !Array.isArray(rep.fotos)) continue;
+      const hatBilddaten = rep.fotos.some(f => f && (f.dataUrl || f.originalUrl));
+      if (!hatBilddaten) continue;
+      const lean = { ...rep, fotos: await fotosAuslagern(rep) };
+      const json = JSON.stringify(lean);
+      if (json.length >= raw.length) continue; // nichts gewonnen (IDB fehlgeschlagen)
+      try {
+        window.localStorage.setItem(k, json);
+        freed += raw.length - json.length;
+      } catch (e) {
+        // Überschreiben darf bei Quota scheitern, weil setItem kurzzeitig beides hält:
+        // dann erst löschen, dann neu schreiben (Daten liegen sicher in der IDB).
+        try {
+          window.localStorage.removeItem(k);
+          window.localStorage.setItem(k, json);
+          freed += raw.length - json.length;
+        } catch (e2) { console.error("Migration", k, e2); }
+      }
+    }
+    try { window.localStorage.setItem(MIGRATION_KEY, "1"); } catch {}
+    if (freed > 0) console.info("Vorschauen-Migration: ~" + Math.round(freed / 1024) + " KB localStorage freigegeben");
+    return freed;
+  } catch (e) {
+    console.error("vorschauenMigrieren:", e);
+    return 0;
+  }
+}
+async function deleteReport(id) {
+  try { await storage.delete("btb:rep:" + id); } catch (e) { console.error(e); }
+  // zugehörige Originale aus IDB aufräumen
+  try {
+    const db = await idbOpen();
+    await new Promise((resolve) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      const store = tx.objectStore(IDB_STORE);
+      const req = store.openCursor();
+      req.onsuccess = () => {
+        const c = req.result;
+        if (c) {
+          const k = String(c.key);
+          if (k.startsWith("orig:" + id + ":") || k.startsWith("preview:" + id + ":")) c.delete();
+          c.continue();
+        }
+      };
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); resolve(); };
+    });
+  } catch (e) { console.error("cleanup originals:", e); }
+}
+
+// Nach erfolgreichem Upload: Export-Fotos aus der IndexedDB freigeben.
+// Der Bericht selbst (Text + 1280-px-Vorschauen) bleibt am Handy einsehbar;
+// nur die großen Export-Versionen werden gelöscht, damit der Speicher nicht volläuft.
+// Liefert den Bericht ohne originalUrl/hasOriginal zurück (zum Speichern).
+async function freeOriginals(rep) {
+  if (!rep || !Array.isArray(rep.fotos)) return rep;
+  const fotos = [];
+  for (const f of rep.fotos) {
+    if (!f) continue;
+    const copy = { ...f };
+    if (copy.originalUrl || copy.hasOriginal) {
+      try { await idbDelete("orig:" + rep.id + ":" + copy.id); } catch (e) { console.error("freeOriginals:", e); }
+      delete copy.originalUrl;
+      copy.hasOriginal = false;
+      copy.originalFreed = true;
+    }
+    fotos.push(copy);
+  }
+  return { ...rep, fotos };
+}
+
+// ============================================================
+// Signature pad
+// ============================================================
+function SignaturePad({ value, onChange }) {
+  const canvasRef = useRef(null);
+  const drawing = useRef(false);
+  const last = useRef({ x: 0, y: 0 });
+  const [hasInk, setHasInk] = useState(!!value);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ratio = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * ratio;
+    canvas.height = rect.height * ratio;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(ratio, ratio);
+    ctx.lineWidth = 3.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#000000";
+    if (value) {
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, 0, 0, rect.width, rect.height);
+      img.src = value;
+    }
+  }, []);
+
+  const pos = (e) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+    return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+  };
+  const start = (e) => { e.preventDefault(); drawing.current = true; last.current = pos(e); };
+  const move = (e) => {
+    if (!drawing.current) return;
+    e.preventDefault();
+    const ctx = canvasRef.current.getContext("2d");
+    const p = pos(e);
+    ctx.beginPath();
+    ctx.moveTo(last.current.x, last.current.y);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    last.current = p;
+    setHasInk(true);
+  };
+  const end = () => {
+    if (!drawing.current) return;
+    drawing.current = false;
+    // Vor dem Export auf weißen Hintergrund kopieren, damit die Unterschrift
+    // im PDF deutlich sichtbar ist (transparente PNGs wirken oft blass).
+    const src = canvasRef.current;
+    const out = document.createElement("canvas");
+    out.width = src.width;
+    out.height = src.height;
+    const octx = out.getContext("2d");
+    octx.fillStyle = "#ffffff";
+    octx.fillRect(0, 0, out.width, out.height);
+    octx.drawImage(src, 0, 0);
+    onChange(out.toDataURL("image/png"));
+  };
+  const clear = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasInk(false);
+    onChange(null);
+  };
+
+  return (
+    <div>
+      <div style={{ position: "relative", border: "2px solid #c9cabb", borderRadius: 12, background: "#fdfdf8", overflow: "hidden" }}>
+        <canvas
+          ref={canvasRef}
+          style={{ width: "100%", height: 160, touchAction: "none", display: "block" }}
+          onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
+          onTouchStart={start} onTouchMove={move} onTouchEnd={end}
+        />
+        {!hasInk && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", color: "#b7b8a8", fontSize: 16, fontStyle: "italic" }}>
+            Hier mit Finger oder Stift unterschreiben
+          </div>
+        )}
+      </div>
+      <button onClick={clear} style={{ ...btnGhost, marginTop: 10 }}>
+        <Eraser size={18} /> Unterschrift löschen
+      </button>
+    </div>
+  );
+}
+
+// ============================================================
+// Reusable field components (big touch targets)
+// ============================================================
+const btnGhost = {
+  display: "inline-flex", alignItems: "center", gap: 8,
+  padding: "10px 16px", borderRadius: 10, border: "2px solid #c9cabb",
+  background: "#fff", color: INK, fontSize: 15, fontWeight: 600, cursor: "pointer",
+};
+
+function Field({ label, children }) {
+  return (
+    <div style={{ marginBottom: 18 }}>
+      <label style={{ display: "block", fontSize: 15, fontWeight: 700, color: DARKGREEN, marginBottom: 6, letterSpacing: 0.3 }}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+const inputStyle = {
+  width: "100%", padding: "14px 16px", fontSize: 18, borderRadius: 12,
+  border: "2px solid #c9cabb", background: "#fff", color: INK, boxSizing: "border-box",
+  fontFamily: "inherit",
+};
+
+function TextInput(props) {
+  return <input {...props} style={{ ...inputStyle, ...(props.style || {}) }} />;
+}
+function TextArea(props) {
+  return <textarea {...props} style={{ ...inputStyle, minHeight: 100, resize: "vertical", lineHeight: 1.4, ...(props.style || {}) }} />;
+}
+
+function WeatherToggle({ active, onClick, icon: Icon, label }) {
+  return (
+    <button onClick={onClick} style={{
+      display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+      padding: "14px 8px", borderRadius: 14, cursor: "pointer", minWidth: 84, flex: 1,
+      border: active ? `3px solid ${GREEN}` : "2px solid #c9cabb",
+      background: active ? "#eef7e6" : "#fff",
+      color: active ? DARKGREEN : "#6b6c5c", fontWeight: 700, fontSize: 14,
+      transition: "all .15s",
+    }}>
+      <Icon size={26} />
+      {label}
+    </button>
+  );
+}
+
+// Punkte-Liste: jede Zeile ist ein Listenpunkt, Hinzufügen/Entfernen möglich
+function BulletListInput({ items, onChange, placeholder, listId = "lst", vorlagen, vorlagenHinweis }) {
+  const list = items && items.length ? items : [""];
+  const focusRow = (idx) => setTimeout(() => {
+    const el = document.querySelector(`[data-bullet="${listId}-${idx}"]`);
+    if (el) { el.focus(); const n = el.value.length; try { el.setSelectionRange(n, n); } catch (e) {} }
+  }, 30);
+  // Vorlage einfügen: leere letzte Zeile füllen, sonst neue Zeile anhängen
+  const insertVorlage = (text) => {
+    const next = [...list];
+    const last = next.length - 1;
+    let idx;
+    if (next[last] === undefined || !String(next[last]).trim()) { next[last] = text; idx = last; }
+    else { next.push(text); idx = next.length - 1; }
+    onChange(next);
+    focusRow(idx);
+  };
+  const update = (i, val) => {
+    const next = [...list];
+    next[i] = val;
+    onChange(next);
+  };
+  const add = () => onChange([...list, ""]);
+  const remove = (i) => {
+    const next = list.filter((_, idx) => idx !== i);
+    onChange(next.length ? next : [""]);
+  };
+  const onKey = (e, i) => {
+    if (e.key === "Enter") { e.preventDefault(); const next = [...list]; next.splice(i + 1, 0, ""); onChange(next);
+      focusRow(i + 1); }
+  };
+  return (
+    <div>
+      {Array.isArray(vorlagen) && vorlagen.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {vorlagen.map(v => {
+              const schonDrin = list.some(x => (x || "").trim() === v);
+              return (
+                <button key={v} type="button" onClick={() => insertVorlage(v)}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "8px 12px", borderRadius: 999,
+                    border: "2px solid " + (schonDrin ? GREEN : "#c9cabb"), background: schonDrin ? "#eef7e6" : "#fff",
+                    color: schonDrin ? DARKGREEN : INK, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                  {schonDrin ? <Check size={14} /> : <Plus size={14} />} {v}
+                </button>
+              );
+            })}
+          </div>
+          {vorlagenHinweis && <p style={{ fontSize: 12, color: "#9a9b89", margin: "6px 2px 0" }}>{vorlagenHinweis}</p>}
+        </div>
+      )}
+      {list.map((val, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <span style={{ color: GREEN, fontSize: 22, fontWeight: 800, lineHeight: 1, flexShrink: 0, width: 16, textAlign: "center" }}>•</span>
+          <input
+            data-bullet={`${listId}-${i}`}
+            value={val}
+            onChange={(e) => update(i, e.target.value)}
+            onKeyDown={(e) => onKey(e, i)}
+            placeholder={i === 0 ? placeholder : "Weiterer Punkt…"}
+            style={{ ...inputStyle, flex: 1 }}
+          />
+          <button onClick={() => remove(i)} style={{ ...btnGhost, padding: 12, borderColor: "#e0c4c4", color: "#b04a4a", flexShrink: 0 }} title="Punkt entfernen">
+            <X size={20} />
+          </button>
+        </div>
+      ))}
+      <button onClick={add} style={{ ...btnGhost, borderColor: GREEN, color: DARKGREEN, marginTop: 2 }}>
+        <Plus size={18} /> Punkt hinzufügen
+      </button>
+    </div>
+  );
+}
+
+// Strukturierte Materialliste: Bezeichnung, Menge, Einheit
+function MaterialList({ items, onChange, placeholder }) {
+  const list = Array.isArray(items) ? items : [];
+  const newItem = () => ({ id: "mat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6), bezeichnung: "", menge: "", einheit: "" });
+  const update = (id, field, val) => onChange(list.map(it => it.id === id ? { ...it, [field]: val } : it));
+  const add = () => onChange([...list, newItem()]);
+  const remove = (id) => onChange(list.filter(it => it.id !== id));
+
+  return (
+    <div>
+      {list.length === 0 && (
+        <p style={{ fontSize: 14, color: "#9a9b89", margin: "0 0 10px 2px", fontStyle: "italic" }}>
+          Noch kein Material erfasst.
+        </p>
+      )}
+      {list.map((it) => (
+        <div key={it.id} className="listrow" style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "stretch", flexWrap: "wrap" }}>
+          <input
+            value={it.bezeichnung}
+            onChange={e => update(it.id, "bezeichnung", e.target.value)}
+            placeholder={placeholder || "Bezeichnung…"}
+            style={{ ...inputStyle, flex: "2 1 200px", minWidth: 180 }}
+          />
+          <input
+            inputMode="decimal"
+            value={it.menge}
+            onChange={e => update(it.id, "menge", e.target.value)}
+            placeholder="Menge"
+            style={{ ...inputStyle, flex: "0 0 100px", textAlign: "center" }}
+          />
+          <select
+            value={it.einheit || ""}
+            onChange={e => update(it.id, "einheit", e.target.value)}
+            style={{ ...inputStyle, flex: "0 0 110px", appearance: "auto", WebkitAppearance: "menulist", paddingRight: 14 }}>
+            <option value="">Einheit…</option>
+            {EINHEIT_LIST.map(u => <option key={u} value={u}>{u}</option>)}
+          </select>
+          <button onClick={() => remove(it.id)} style={{ ...btnGhost, padding: 12, borderColor: "#e0c4c4", color: "#b04a4a", flexShrink: 0 }} title="Eintrag entfernen">
+            <X size={20} />
+          </button>
+        </div>
+      ))}
+      <button onClick={add} style={{ ...btnGhost, borderColor: GREEN, color: DARKGREEN, marginTop: 2 }}>
+        <Plus size={18} /> Material hinzufügen
+      </button>
+    </div>
+  );
+}
+
+// Fahrzeug-/Hebegerät-Liste: Auswahl + Stunden
+function FahrzeugList({ items, onChange }) {
+  const list = Array.isArray(items) ? items : [];
+  const newItem = () => ({ id: "fz_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6), name: "", std: "" });
+  const update = (id, field, val) => onChange(list.map(it => it.id === id ? { ...it, [field]: val } : it));
+  const add = () => onChange([...list, newItem()]);
+  const remove = (id) => onChange(list.filter(it => it.id !== id));
+
+  // Summe der Stunden
+  const totalStd = list.reduce((s, it) => {
+    const n = parseFloat(String(it.std || "").replace(",", "."));
+    return s + (isNaN(n) ? 0 : n);
+  }, 0);
+  const fmt = fmtHours;
+
+  return (
+    <div>
+      {list.length === 0 && (
+        <p style={{ fontSize: 14, color: "#9a9b89", margin: "0 0 10px 2px", fontStyle: "italic" }}>
+          Noch kein Fahrzeug/Hebegerät erfasst.
+        </p>
+      )}
+      {list.map((it) => (
+        <div key={it.id} className="listrow" style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "stretch", flexWrap: "wrap" }}>
+          <select
+            value={it.name || ""}
+            onChange={e => update(it.id, "name", e.target.value)}
+            style={{ ...inputStyle, flex: "2 1 240px", minWidth: 220, appearance: "auto", WebkitAppearance: "menulist", paddingRight: 14 }}>
+            <option value="">Fahrzeug/Hebegerät wählen…</option>
+            {FAHRZEUGE_LIST.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+          <input
+            inputMode="decimal"
+            value={it.std}
+            onChange={e => update(it.id, "std", e.target.value)}
+            placeholder="Stunden"
+            style={{ ...inputStyle, flex: "0 0 110px", textAlign: "center" }}
+          />
+          <button onClick={() => remove(it.id)} style={{ ...btnGhost, padding: 12, borderColor: "#e0c4c4", color: "#b04a4a", flexShrink: 0 }} title="Eintrag entfernen">
+            <X size={20} />
+          </button>
+        </div>
+      ))}
+      <button onClick={add} style={{ ...btnGhost, borderColor: GREEN, color: DARKGREEN, marginTop: 2 }}>
+        <Plus size={18} /> Fahrzeug/Hebegerät hinzufügen
+      </button>
+      {list.length > 0 && (
+        <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "#fff4e6", border: "2px solid #d99a3f", borderRadius: 12 }}>
+          <span style={{ fontWeight: 800, color: "#8a5a1c", fontSize: 15 }}>Gerätestunden gesamt</span>
+          <span style={{ fontWeight: 800, color: "#8a5a1c", fontSize: 18 }}>{fmt(totalStd)} Std.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Regie-Leistungen: Bezeichnung + Personen + Stunden mit Gesamtsumme
+function RegieLeistungList({ items, onChange }) {
+  const list = Array.isArray(items) ? items : [];
+  const newItem = () => ({ id: "regie_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6), bezeichnung: "", personen: "", stunden: "" });
+  const update = (id, field, val) => onChange(list.map(it => it.id === id ? { ...it, [field]: val } : it));
+  const add = () => onChange([...list, newItem()]);
+  const remove = (id) => onChange(list.filter(it => it.id !== id));
+
+  const parse = (v) => { const n = parseFloat(String(v || "").replace(",", ".")); return isNaN(n) ? 0 : n; };
+  // Gesamtstunden = Personen × Stunden je Eintrag
+  const totalStd = list.reduce((s, it) => {
+    const std = parse(it.stunden); if (!std) return s;
+    const p = parse(it.personen); return s + std * (p > 0 ? p : 1);
+  }, 0);
+  const fmt = fmtHours;
+
+  return (
+    <div>
+      {list.length === 0 && (
+        <p style={{ fontSize: 14, color: "#9a9b89", margin: "0 0 10px 2px", fontStyle: "italic" }}>
+          Noch keine Regie-Leistung erfasst.
+        </p>
+      )}
+      {list.map((it) => (
+        <div key={it.id} className="listrow" style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "stretch", flexWrap: "wrap" }}>
+          <input
+            value={it.bezeichnung}
+            onChange={e => update(it.id, "bezeichnung", e.target.value)}
+            placeholder="Bezeichnung der Regie-Leistung…"
+            style={{ ...inputStyle, flex: "2 1 240px", minWidth: 200 }}
+          />
+          <input
+            inputMode="numeric"
+            value={it.personen}
+            onChange={e => update(it.id, "personen", e.target.value)}
+            placeholder="Personen"
+            style={{ ...inputStyle, flex: "0 0 90px", textAlign: "center" }}
+            title="Anzahl Personen"
+          />
+          <input
+            inputMode="decimal"
+            value={it.stunden}
+            onChange={e => update(it.id, "stunden", e.target.value)}
+            placeholder="Std."
+            style={{ ...inputStyle, flex: "0 0 90px", textAlign: "center" }}
+            title="Stunden je Person"
+          />
+          <button onClick={() => remove(it.id)} style={{ ...btnGhost, padding: 12, borderColor: "#e0c4c4", color: "#b04a4a", flexShrink: 0 }} title="Eintrag entfernen">
+            <X size={20} />
+          </button>
+        </div>
+      ))}
+      <button onClick={add} style={{ ...btnGhost, borderColor: GREEN, color: DARKGREEN, marginTop: 2 }}>
+        <Plus size={18} /> Regie-Leistung hinzufügen
+      </button>
+      {list.length > 0 && (
+        <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "#eef7e6", border: "2px solid " + GREEN, borderRadius: 12 }}>
+          <span style={{ fontWeight: 800, color: DARKGREEN, fontSize: 15 }}>Regie-Stunden gesamt (zusätzlich)</span>
+          <span style={{ fontWeight: 800, color: DARKGREEN, fontSize: 18 }}>{fmt(totalStd)} Std.</span>
+        </div>
+      )}
+      <p style={{ fontSize: 12, color: "#9a9b89", margin: "8px 2px 0" }}>
+        Berechnung: Personen × Stunden je Eintrag. Diese Stunden kommen zusätzlich zur Arbeitsleistung oben.
+      </p>
+    </div>
+  );
+}
+
+// ============================================================
+// Editor view
+// ============================================================
+// Autocomplete für Bauvorhaben: zeigt passende bereits angelegte Baustellen
+// Bild-Upload mit Vorschau und Kommentar pro Foto.
+// Bilder werden vor dem Speichern auf max. 1280px verkleinert (für Speicher und PDF).
+async function fileToCompressedDataURL(file, maxDim = 1280, quality = 0.78) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        const scale = Math.min(1, maxDim / Math.max(width, height));
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// Liest das Original als DataURL ein (nur noch Notfall-Fallback, falls die Verkleinerung scheitert).
+async function fileToOriginalDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// Export-Version des Fotos: lange Kante max. 2000 px, JPEG 82 %.
+// Statt 3–8 MB pro Handyfoto bleiben ~300–700 KB – reicht für Baudoku und PDF
+// und hält ZIP-Upload (Power-Automate-Limit) und Handy-Speicher klein.
+const EXPORT_MAX_DIM = 2000;
+const EXPORT_QUALITY = 0.82;
+async function fileToExportDataURL(file) {
+  try {
+    return await fileToCompressedDataURL(file, EXPORT_MAX_DIM, EXPORT_QUALITY);
+  } catch (e) {
+    console.warn("Foto-Verkleinerung fehlgeschlagen, Original wird verwendet:", e);
+    return fileToOriginalDataURL(file);
+  }
+}
+
+function PhotoUpload({ fotos, onChange }) {
+  const inputRef = useRef(null);
+  const list = fotos || [];
+
+  const onPick = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const additions = [];
+    for (const f of files) {
+      try {
+        const [dataUrl, originalUrl] = await Promise.all([
+          fileToCompressedDataURL(f),
+          fileToExportDataURL(f),
+        ]);
+        additions.push({
+          id: "foto_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+          dataUrl,           // klein (1280 px), für Vorschau + PDF
+          originalUrl,       // Export-Version (2000 px JPEG), für ZIP-Export
+          originalName: f.name || "foto.jpg",
+          originalType: "image/jpeg",
+          kommentar: "",
+        });
+      } catch (err) { console.error(err); }
+    }
+    onChange([...list, ...additions]);
+    e.target.value = "";
+  };
+
+  const updateKommentar = (id, val) => onChange(list.map(f => f.id === id ? { ...f, kommentar: val } : f));
+  const remove = (id) => onChange(list.filter(f => f.id !== id));
+
+  return (
+    <div>
+      <input ref={inputRef} type="file" accept="image/*" multiple onChange={onPick}
+        style={{ display: "none" }} />
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: list.length ? 14 : 0 }}>
+        <button onClick={() => inputRef.current?.click()}
+          style={{ ...btnGhost, borderColor: GREEN, color: DARKGREEN }}>
+          <ImagePlus size={20} /> Foto hinzufügen
+        </button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 14 }}>
+        {list.map(f => (
+          <div key={f.id} style={{ border: "2px solid #c9cabb", borderRadius: 14, overflow: "hidden", background: "#fff" }}>
+            <div style={{ position: "relative", paddingTop: "75%", background: "#000" }}>
+              <img src={f.dataUrl} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+              <button onClick={() => remove(f.id)} title="Foto entfernen"
+                style={{ position: "absolute", top: 8, right: 8, border: "none", background: "rgba(0,0,0,.6)", color: "#fff", borderRadius: 999, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                <X size={18} />
+              </button>
+            </div>
+            <input
+              value={f.kommentar || ""}
+              onChange={(e) => updateKommentar(f.id, e.target.value)}
+              placeholder="Bildbeschreibung…"
+              style={{ ...inputStyle, border: "none", borderTop: "1px solid #e3e3d4", padding: "10px 12px", fontSize: 14, borderRadius: 0 }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+// Mehrfach-Auswahl als „Pills" – Mitarbeiter werden angetippt und an-/abgewählt.
+// Liefert einen kommagetrennten String an onChange (kompatibel mit Datenmodell).
+function MultiSelectPills({ value, onChange, options, label, groups }) {
+  const [open, setOpen] = useState(false);
+  const favoriten = useFavoriten();
+  const wrapRef = useRef(null);
+  const selected = (value || "").split(",").map(s => s.trim()).filter(Boolean);
+  const isSelected = (name) => selected.includes(name);
+  const toggle = (name) => {
+    const next = isSelected(name) ? selected.filter(n => n !== name) : [...selected, name];
+    next.sort((a, b) => a.localeCompare(b, "de"));
+    onChange(next.join(", "));
+  };
+  const clear = () => onChange("");
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocPointer = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocPointer);
+    document.addEventListener("touchstart", onDocPointer);
+    return () => {
+      document.removeEventListener("mousedown", onDocPointer);
+      document.removeEventListener("touchstart", onDocPointer);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8, minHeight: 30 }}>
+        {selected.length === 0 ? (
+          <span style={{ color: "#9a9b89", fontSize: 14, fontStyle: "italic", padding: "6px 0" }}>
+            Noch niemand ausgewählt
+          </span>
+        ) : (
+          selected.map(n => (
+            <span key={n} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px 6px 12px", borderRadius: 999, background: "#eef7e6", border: "1px solid " + GREEN, color: DARKGREEN, fontSize: 14, fontWeight: 600 }}>
+              {n}
+              <button onClick={() => toggle(n)} title="Entfernen"
+                style={{ border: "none", background: "rgba(0,0,0,.08)", color: DARKGREEN, borderRadius: 999, width: 20, height: 20, display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
+                <X size={12} />
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={() => setOpen(o => !o)}
+          style={{ ...btnGhost, borderColor: GREEN, color: DARKGREEN }}>
+          <Plus size={18} /> {label || "Auswählen"}
+        </button>
+        {selected.length > 0 && (
+          <button onClick={clear} style={{ ...btnGhost, color: "#888" }}>
+            Alle entfernen
+          </button>
+        )}
+      </div>
+      {open && (
+        <div style={{ marginTop: 10, border: "2px solid #c9cabb", borderRadius: 12, background: "#fff", maxHeight: 280, overflowY: "auto" }}>
+          {options.length === 0 ? (
+            <div style={{ padding: 14, color: "#9a9b89", fontSize: 14 }}>Keine Einträge verfügbar.</div>
+          ) : (() => {
+            // Abschnitte: Favoriten ganz oben, danach die Gruppen (ohne Favoriten, keine Doppelten)
+            const favs = options.filter(o => favoriten.includes(o));
+            const rest = (groups && groups.length ? groups : [[null, options]])
+              .map(([titel, namen]) => [titel, namen.filter(n => options.includes(n) && !favoriten.includes(n))])
+              .filter(([, namen]) => namen.length > 0);
+            const sections = favs.length ? [["★ Meine Favoriten", favs], ...rest] : rest;
+            return sections.map(([titel, namen]) => (
+              <div key={titel || "alle"}>
+                {titel && (
+                  <div style={{ padding: "8px 14px", background: "#f6f6ee", borderTop: "1px solid #e3e3d4", fontSize: 12, fontWeight: 800, color: "#6b6c5c", letterSpacing: 0.4, textTransform: "uppercase" }}>
+                    {titel}
+                  </div>
+                )}
+                {namen.map((opt, i) => {
+                  const sel = isSelected(opt);
+                  const fav = favoriten.includes(opt);
+                  return (
+                    <div key={opt} style={{ display: "flex", alignItems: "stretch", borderTop: i === 0 ? "none" : "1px solid #f0f1e6", background: sel ? "#eef7e6" : "#fff" }}>
+                      <button onClick={() => toggle(opt)}
+                        style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between", flex: 1,
+                          textAlign: "left", padding: "12px 14px", border: "none", background: "transparent",
+                          cursor: "pointer", fontSize: 15, color: INK, fontFamily: "inherit", fontWeight: sel ? 700 : 500,
+                        }}>
+                        <span>{opt}</span>
+                        {sel ? <Check size={18} color={GREEN} /> : <span style={{ width: 18 }} />}
+                      </button>
+                      <button onClick={() => toggleFavorit(opt)} title={fav ? "Favorit entfernen" : "Als Favorit merken"}
+                        style={{ border: "none", borderLeft: "1px solid #f0f1e6", background: "transparent", padding: "0 14px", cursor: "pointer", display: "flex", alignItems: "center" }}>
+                        <FavStar active={fav} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ));
+          })()}
+          <div style={{ padding: 8, borderTop: "1px solid #e3e3d4", display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={() => setOpen(false)} style={{ ...btnGhost, padding: "8px 14px" }}>
+              Schließen
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Einfache Einzel-Auswahl als Dropdown (für Bauführer, LKW)
+function NativeSelect({ value, onChange, options, placeholder, groups, favoriten }) {
+  const favs = (favoriten || []).filter(f => options.includes(f));
+  const useGroups = (groups && groups.length) || favs.length;
+  return (
+    <select value={value || ""} onChange={e => onChange(e.target.value)}
+      style={{ ...inputStyle, appearance: "auto", WebkitAppearance: "menulist", paddingRight: 14 }}>
+      <option value="">{placeholder || "Bitte wählen…"}</option>
+      {!useGroups && options.map(o => <option key={o} value={o}>{o}</option>)}
+      {useGroups && favs.length > 0 && (
+        <optgroup label="★ Meine Favoriten">
+          {favs.map(o => <option key={"fav-" + o} value={o}>{o}</option>)}
+        </optgroup>
+      )}
+      {useGroups && (groups && groups.length ? groups : [["Alle", options]]).map(([titel, namen]) => {
+        const rest = namen.filter(n => !favs.includes(n));
+        return rest.length ? (
+          <optgroup key={titel} label={titel}>
+            {rest.map(o => <option key={o} value={o}>{o}</option>)}
+          </optgroup>
+        ) : null;
+      })}
+    </select>
+  );
+}
+
+// Bulk-Stunden-Setzer: Eingabe + Knopf, der alle Stunden einer Kategorie überschreibt
+function BulkStundenSetzer({ onSet }) {
+  const [val, setVal] = useState("");
+  const apply = () => { if (val !== "") onSet(val); };
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 12px", background: "#f3f7ee", border: "1px dashed " + GREEN, borderRadius: 10, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 13, color: DARKGREEN, fontWeight: 700 }}>Alle gleich:</span>
+      <input inputMode="decimal" value={val} onChange={e => setVal(e.target.value)} placeholder="z. B. 8"
+        style={{ ...inputStyle, padding: "8px 10px", textAlign: "center", fontSize: 15, width: 80, flex: "0 0 auto" }} />
+      <span style={{ fontSize: 13, color: "#6b6c5c" }}>Std.</span>
+      <button onClick={apply}
+        style={{ ...btnGhost, padding: "8px 14px", borderColor: GREEN, color: DARKGREEN, fontSize: 14 }}>
+        Auf alle setzen
+      </button>
+    </div>
+  );
+}
+
+// Autocomplete für Bauvorhaben: zeigt passende bereits angelegte Baustellen
+function BauvorhabenAutocomplete({ value, onChange, suggestions }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    const onDocClick = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("touchstart", onDocClick);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("touchstart", onDocClick);
+    };
+  }, []);
+
+  const q = (value || "").trim().toLowerCase();
+  const list = (suggestions || [])
+    .filter(s => s && s.trim())
+    .filter(s => !q || s.toLowerCase().includes(q))
+    .filter(s => s.toLowerCase() !== q)
+    .slice(0, 6);
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <input
+        value={value || ""}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder="z. B. FH Rosenheim"
+        style={inputStyle}
+      />
+      {open && list.length > 0 && (
+        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: "#fff", border: "2px solid #c9cabb", borderRadius: 12, boxShadow: "0 6px 20px rgba(0,0,0,.08)", zIndex: 30, overflow: "hidden" }}>
+          <div style={{ padding: "8px 14px", fontSize: 12, color: "#8a8b79", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", background: "#fbfbf4", borderBottom: "1px solid #e3e3d4" }}>
+            Bestehende Baustellen
+          </div>
+          {list.map((s, i) => (
+            <button key={s} onClick={() => { onChange(s); setOpen(false); }}
+              style={{
+                display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+                padding: "12px 14px", border: "none", background: "#fff", cursor: "pointer", fontSize: 16,
+                borderTop: i === 0 ? "none" : "1px solid #f0f1e6", color: INK, fontFamily: "inherit",
+              }}>
+              <FolderOpen size={18} color={GREEN} />
+              <span>{s}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Aufklappbarer, nummerierter Abschnitt im Bericht.
+// status: "ok" (erledigt, grüner Haken) | "pflicht" (fehlt, blockiert Versand – orange) | "leer" (optional/noch leer – grau)
+function Abschnitt({ id, nr, titel, zusammenfassung, status, offen, onToggle, onWeiter, children }) {
+  const rand = status === "pflicht" ? REGIE_ORANGE : (offen ? "#c9cabb" : "#e3e3d4");
+  const kreisBg = status === "ok" ? "#eef7e6" : status === "pflicht" ? "#fff1dc" : "#f3f3ea";
+  const kreisFg = status === "ok" ? DARKGREEN : status === "pflicht" ? "#8a5a00" : "#6b6c5c";
+  const kreisRand = status === "ok" ? GREEN : status === "pflicht" ? REGIE_ORANGE : "#c9cabb";
+  return (
+    <div id={"abschnitt-" + id} style={{ background: "#fff", border: "2px solid " + rand, borderRadius: 16, marginBottom: 12, scrollMarginTop: 84 }}>
+      <button type="button" onClick={onToggle}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
+        <span style={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 16, background: kreisBg, color: kreisFg, border: "2px solid " + kreisRand }}>
+          {status === "ok" ? <Check size={18} /> : nr}
+        </span>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 17, fontWeight: 800, color: INK }}>{titel}</span>
+          <span style={{ display: "block", fontSize: 13, color: status === "pflicht" ? "#a35f00" : "#6b6c5c", fontWeight: status === "pflicht" ? 700 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {zusammenfassung}
+          </span>
+        </span>
+        {offen ? <ChevronUp size={22} color="#6b6c5c" /> : <ChevronDown size={22} color="#6b6c5c" />}
+      </button>
+      {offen && (
+        <div style={{ padding: "6px 16px 16px", borderTop: "1px solid #f0f1e6" }}>
+          <div style={{ height: 10 }} />
+          {children}
+          {onWeiter && (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+              <button type="button" onClick={onWeiter} style={{ ...btnGhost, borderColor: GREEN, color: DARKGREEN }}>
+                Weiter <ChevronRight size={18} />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Regie-Karte: auffällig, mit Pflichtfrage Ja/Nein
+function RegieKarte({ r, set }) {
+  const st = regieStatus(r);
+  const fehler = regieFehler(r);
+  const waehle = (v) => {
+    if (v === "nein" && hatRegieEintraege(r)) {
+      if (!window.confirm("Es sind bereits Regie-Einträge vorhanden. Bei „Nein“ werden sie entfernt. Fortfahren?")) return;
+      set({ regie: "nein", regieLeistungen: [], regieMaterial: [] });
+      return;
+    }
+    if (v === "ja" && (!Array.isArray(r.regieLeistungen) || r.regieLeistungen.length === 0)) {
+      // Gleich eine leere Zeile anlegen, damit sofort getippt werden kann
+      set({ regie: "ja", regieLeistungen: [{ id: "regie_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6), bezeichnung: "", personen: "", stunden: "" }] });
+      return;
+    }
+    set({ regie: v });
+  };
+  const knopf = (v, label) => {
+    const aktiv = st === v;
+    return (
+      <button type="button" onClick={() => waehle(v)}
+        style={{ flex: 1, padding: "14px 10px", fontSize: 18, fontWeight: 800, borderRadius: 12, cursor: "pointer", fontFamily: "inherit",
+          border: "3px solid " + (aktiv ? REGIE_ORANGE : "#e3c79a"), background: aktiv ? REGIE_ORANGE : "#fff", color: aktiv ? "#fff" : "#8a5a00" }}>
+        {aktiv && <Check size={18} style={{ verticalAlign: -3, marginRight: 6 }} />}{label}
+      </button>
+    );
+  };
+  return (
+    <div id="regie-feld">
+      <div style={{ fontSize: 16, fontWeight: 700, color: "#8a5a00", marginBottom: 10 }}>Sind heute Regiearbeiten angefallen?</div>
+      <div style={{ display: "flex", gap: 10 }}>
+        {knopf("ja", "Ja")}
+        {knopf("nein", "Nein")}
+      </div>
+      {fehler && st === "ja" && (
+        <p style={{ fontSize: 13, color: "#b04a4a", fontWeight: 600, margin: "10px 2px 0" }}>{fehler}</p>
+      )}
+      {st === "nein" && (
+        <p style={{ fontSize: 14, color: "#6b6c5c", margin: "12px 2px 0" }}>
+          <Check size={16} color={GREEN} style={{ verticalAlign: -3 }} /> Im PDF wird „Keine Regiearbeiten“ vermerkt.
+        </p>
+      )}
+      {st === "ja" && (
+        <div style={{ marginTop: 16 }}>
+          <Field label="Regie-Leistungen"><RegieLeistungList items={r.regieLeistungen} onChange={(v) => set({ regieLeistungen: v })} /></Field>
+          <Field label="Regie-Material">
+            <MaterialList items={r.regieMaterial} onChange={(v) => set({ regieMaterial: v })} placeholder="Bezeichnung des Regie-Materials…" />
+          </Field>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingFolders }) {
+  const r = report;
+  const set = (patch) => onChange({ ...r, ...patch });
+  const setArb = (key, sub, val) => set({ arbeiter: { ...r.arbeiter, [key]: { ...r.arbeiter[key], [sub]: val } } });
+  const toggleW = (k) => set({ witterung: { ...r.witterung, [k]: !r.witterung[k] } });
+  const favoriten = useFavoriten();
+
+  // Aufklapp-Zustand: neuer/leerer Bericht startet mit „Allgemein“ offen, sonst alles zu
+  const [offen, setOffen] = useState(() => (r.bauvorhaben ? null : "allgemein"));
+  const oeffne = (key) => {
+    setOffen(key);
+    if (key) setTimeout(() => {
+      const el = document.getElementById("abschnitt-" + key);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+  };
+  useEffect(() => {
+    const h = (e) => oeffne(e.detail);
+    window.addEventListener("btb-abschnitt", h);
+    return () => window.removeEventListener("btb-abschnitt", h);
+  }, []);
+  const toggle = (key) => (offen === key ? setOffen(null) : oeffne(key));
+
+  // Zusammenfassungen / Status je Abschnitt
+  const datumTxt = r.datum ? r.datum.split("-").reverse().join(".") : "";
+  const anzPers = ["vorarbeiter", "facharbeiter", "lehrling"].reduce((n, k) => n + namesFromString(r.arbeiter?.[k]?.namen).length, 0);
+  const fz = (Array.isArray(r.fahrzeuge) ? r.fahrzeuge : []).filter(f => f && f.name);
+  const fzStd = fz.reduce((sum, f) => sum + parseNum(f.std), 0);
+  const leist = (Array.isArray(r.leistungsergebnisse) ? r.leistungsergebnisse : []).filter(x => x && x.trim());
+  const mat = (Array.isArray(r.material) ? r.material : []).filter(it => it && it.bezeichnung);
+  const beh = (Array.isArray(r.behinderungen) ? r.behinderungen : []).filter(x => x && x.trim());
+  const nFotos = (Array.isArray(r.fotos) ? r.fotos : []).filter(f => f && f.id).length;
+  const rSt = regieStatus(r);
+  const rFehler = regieFehler(r);
+  const regieStd = (Array.isArray(r.regieLeistungen) ? r.regieLeistungen : []).reduce((sum, it) => {
+    const std = parseNum(it && it.stunden); const per = parseNum(it && it.personen);
+    return sum + std * (per > 0 ? per : 1);
+  }, 0);
+  const allgemeinOk = !!(r.datum && (r.bauvorhaben || "").trim() && r.bauführer);
+  const ABSCHNITTE = ["allgemein", "mannschaft", "fahrzeuge", "leistung", "behinderungen", "fotos", "regie", "unterschrift"];
+  const weiter = (key) => () => oeffne(ABSCHNITTE[ABSCHNITTE.indexOf(key) + 1] || null);
+  const sec = (key, nr, titel, zusammenfassung, status) => ({
+    id: key, nr, titel, zusammenfassung, status, offen: offen === key, onToggle: () => toggle(key),
+    onWeiter: key === "unterschrift" ? null : weiter(key),
+  });
+  const sFehler = stundenFehler(r);
+  const ohneStd = namenOhneStunden(r);
+  const fehlt = [
+    !hatBauvorhaben(r) && ["allgemein", "Bauvorhaben"],
+    !hatTechniker(r) && ["allgemein-techniker", "Techniker (Bauleiter)"],
+    sFehler && ["mannschaft", "Stunden"],
+    !hatFoto(r) && ["fotos", "Fotos"],
+    rFehler && ["regie", "Regiearbeiten"],
+  ].filter(Boolean);
+  const PFLICHT_GESAMT = 5; // Anzahl der Prüfungen in „fehlt“
+  const [fehltAuf, setFehltAuf] = useState(false);
+
+  const arbRows = [
+    ["vorarbeiter",  "Vorarbeiter",   VORARBEITER_LIST,  "multi", null],
+    ["facharbeiter", "Facharbeiter",  FACHARBEITER_LIST, "multi", FACHARBEITER_GRUPPEN],
+    ["lehrling",     "Lehrlinge",     LEHRLINGE_LIST,    "multi", null],
+  ];
+
+  return (
+    <div className="edit-page" style={{ paddingBottom: 90 }}>
+      {/* top bar */}
+      <div className="topbar" style={{ position: "sticky", top: 0, zIndex: 10, background: "#fbfbf4", borderBottom: "2px solid #e3e3d4", padding: "12px 16px", display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
+        <button onClick={onBack} style={btnGhost}><ChevronLeft size={20} /> Zurück</button>
+        <div style={{ flex: 1 }} />
+        <button onClick={onExport} title="PDF erstellen" style={{ ...btnGhost, borderColor: "#c9cabb", color: "#6b6c5c", padding: "12px 14px", fontSize: 15 }}>
+          <Download size={18} /> PDF
+        </button>
+        <button onClick={onSave} style={{ ...btnGhost, background: GREEN, color: "#fff", borderColor: GREEN, padding: "12px 18px", fontSize: 16 }}>
+          <Save size={18} /> Speichern
+        </button>
+      </div>
+
+      <div style={{ maxWidth: 860, margin: "0 auto", padding: "24px 18px" }}>
+        {r.bueroKorrektur && (
+          <div style={{ background: "#fff6e0", border: "2px solid #e6c46a", borderRadius: 12, padding: "10px 14px", marginBottom: 16, fontSize: 14, color: "#6b5310", fontWeight: 600 }}>
+            Nachträglich bearbeiteter Bericht – wird als „…_korrigiert“ exportiert und im PDF vermerkt.
+          </div>
+        )}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16 }}>
+          <h2 style={{ fontFamily: "Oswald, sans-serif", fontSize: 20, color: INK, margin: 0, textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "nowrap" }}>Bau-Tagesbericht</h2>
+          <Logo small />
+        </div>
+
+        <Abschnitt {...sec("allgemein", 1, "Allgemein",
+          !hatBauvorhaben(r) && !hatTechniker(r) ? "Fehlt – Bauvorhaben und Techniker (Bauleiter) eintragen"
+            : !hatBauvorhaben(r) ? "Fehlt – Bauvorhaben zum Versenden eintragen"
+            : !hatTechniker(r) ? "Fehlt – Techniker (Bauleiter) zum Versenden wählen"
+            : allgemeinOk ? [datumTxt, r.bauvorhaben, r.bauführer].filter(Boolean).join(" · ") : "Bauvorhaben und Bauführer eintragen",
+          (!hatBauvorhaben(r) || !hatTechniker(r)) ? "pflicht" : allgemeinOk ? "ok" : "leer")}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
+          <div style={{ flex: "0 0 200px" }}>
+            <Field label="Datum">
+              <TextInput type="date" value={r.datum} onChange={e => set({ datum: e.target.value })} style={{ fontSize: 16 }} />
+            </Field>
+          </div>
+        </div>
+        <Field label="Bauvorhaben – Pflichtfeld"><BauvorhabenAutocomplete value={r.bauvorhaben} onChange={(v) => set({ bauvorhaben: v })} suggestions={existingFolders} /></Field>
+        <Field label="Zuständiger Techniker (Bauleiter) – Pflichtfeld">
+          <NativeSelect value={r.techniker} onChange={(v) => set({ techniker: v })}
+            options={TECHNIKER_LIST}
+            placeholder="Techniker wählen…" />
+        </Field>
+        <Field label="Verantwortlicher Bauführer">
+          <NativeSelect value={r.bauführer} onChange={(v) => {
+              // Bauführer setzen; wenn der Vorarbeiter-Bereich noch leer ist,
+              // den Bauführer dort automatisch eintragen (Liste muss ihn kennen)
+              const patch = { bauführer: v };
+              const vor = r.arbeiter?.vorarbeiter?.namen || "";
+              if (v && !vor.trim()) {
+                patch.arbeiter = {
+                  ...r.arbeiter,
+                  vorarbeiter: { ...(r.arbeiter?.vorarbeiter || { n: "", std: "", namen: "" }), namen: v },
+                };
+              }
+              onChange({ ...r, ...patch });
+            }}
+            options={BAUFUEHRER_LIST}
+            groups={BAUFUEHRER_GRUPPEN}
+            favoriten={favoriten}
+            placeholder="Bauführer wählen…" />
+          {r.bauführer && (
+            <button type="button" onClick={() => toggleFavorit(r.bauführer)}
+              style={{ ...btnGhost, marginTop: 8, padding: "8px 14px", fontSize: 14, borderColor: favoriten.includes(r.bauführer) ? FAV_GOLD : "#c9cabb" }}>
+              <FavStar active={favoriten.includes(r.bauführer)} size={18} />
+              {favoriten.includes(r.bauführer) ? "Favorit auf diesem Handy" : "Als Favorit auf diesem Handy merken"}
+            </button>
+          )}
+        </Field>
+
+        <Field label="Witterung">
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <WeatherToggle active={r.witterung.sonne} onClick={() => toggleW("sonne")} icon={Sun} label="Sonne" />
+            <WeatherToggle active={r.witterung.regen} onClick={() => toggleW("regen")} icon={CloudRain} label="Regen" />
+            <WeatherToggle active={r.witterung.frost} onClick={() => toggleW("frost")} icon={ThermometerSnowflake} label="Frost" />
+            <WeatherToggle active={r.witterung.wind} onClick={() => toggleW("wind")} icon={Wind} label="Wind" />
+            <WeatherToggle active={r.witterung.schnee} onClick={() => toggleW("schnee")} icon={Snowflake} label="Schnee" />
+          </div>
+        </Field>
+
+        </Abschnitt>
+
+        <Abschnitt {...sec("mannschaft", 2, "Mannschaft und Stunden",
+          ohneStd.length ? `Fehlt – Stunden bei ${ohneStd.length} ${ohneStd.length === 1 ? "Person" : "Personen"} eintragen`
+            : sFehler ? "Fehlt – Mannschaft und Stunden zum Versenden eintragen"
+            : `${anzPers} ${anzPers === 1 ? "Person" : "Personen"} · ${fmtHours(totalHours(r.arbeiter))} Std.`,
+          sFehler ? "pflicht" : "ok")}>
+        <Field label="Anzahl der beschäftigten Arbeiter">
+          <div style={{ display: "grid", gap: 14 }}>
+            {arbRows.map(([key, lbl, opts, mode, gruppen]) => {
+              const a = r.arbeiter[key] || { n: "", std: "", namen: "", stundenPro: {} };
+              const selectedNames = (a.namen || "").split(",").map(s => s.trim()).filter(Boolean);
+              const autoCount = selectedNames.length;
+              const catSum = categoryTotal(a);
+              const setStundenPro = (name, val) => {
+                const newSP = { ...(a.stundenPro || {}), [name]: val };
+                set({ arbeiter: { ...r.arbeiter, [key]: { ...a, stundenPro: newSP } } });
+              };
+              const setAllStunden = (val) => {
+                const newSP = {};
+                selectedNames.forEach(n => { newSP[n] = val; });
+                set({ arbeiter: { ...r.arbeiter, [key]: { ...a, stundenPro: newSP, std: val } } });
+              };
+              return (
+                <div key={key} className="arbeiter-karte" style={{ border: "2px solid #c9cabb", borderRadius: 14, background: "#fff", padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: DARKGREEN }}>{lbl}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 14, color: "#6b6c5c" }}>
+                      <span>Anzahl: <strong style={{ color: INK, fontSize: 16 }}>{autoCount || "—"}</strong></span>
+                      <span>Summe: <strong style={{ color: DARKGREEN, fontSize: 16 }}>{fmtHours(catSum)} Std.</strong></span>
+                    </div>
+                  </div>
+                  {mode === "multi" ? (
+                    <MultiSelectPills
+                      value={a.namen}
+                      onChange={(v) => { setArb(key, "namen", v); }}
+                      options={opts}
+                      groups={gruppen}
+                      label={"Aus Liste wählen"}
+                    />
+                  ) : (
+                    <NativeSelect
+                      value={a.namen}
+                      onChange={(v) => setArb(key, "namen", v)}
+                      options={opts}
+                      placeholder="LKW wählen…"
+                    />
+                  )}
+                  {/* Stunden pro Person, Bulk-Knopf darunter */}
+                  {selectedNames.length > 0 && (
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {selectedNames.map(n => (
+                          <div key={n} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "#fbfbf4", borderRadius: 10, border: "1px solid #e3e3d4" }}>
+                            <span className="arbeiter-karte-name" style={{ flex: 1, fontSize: 15, color: INK, fontWeight: 500 }}>{n}</span>
+                            <input
+                              inputMode="decimal"
+                              value={(a.stundenPro && a.stundenPro[n] !== undefined) ? a.stundenPro[n] : (a.std || "")}
+                              onChange={e => setStundenPro(n, e.target.value)}
+                              placeholder="Std."
+                              style={{ ...inputStyle, padding: "8px 10px", textAlign: "center", fontSize: 15, width: 80, flex: "0 0 auto",
+                                ...(hoursForName(a, n) > 0 ? {} : { borderColor: REGIE_ORANGE, background: "#fff1dc" }) }}
+                            />
+                            <span style={{ fontSize: 13, color: "#9a9b89", width: 26 }}>Std.</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ marginTop: 10 }}>
+                        <BulkStundenSetzer onSet={setAllStunden} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderRadius: 14, background: "#eef7e6", padding: "14px 18px", border: "2px solid " + GREEN }}>
+              <div style={{ fontWeight: 800, fontSize: 16, color: DARKGREEN }}>Arbeitsleistung ohne Gerät</div>
+              <div style={{ fontWeight: 800, fontSize: 20, color: DARKGREEN }}>{fmtHours(totalHours(r.arbeiter))} Std.</div>
+            </div>
+          </div>
+        </Field>
+        </Abschnitt>
+
+        <Abschnitt {...sec("fahrzeuge", 3, "Fahrzeuge / Hebegeräte",
+          fz.length ? `${fz.map(f => f.name).join(", ")} · ${fmtHours(fzStd)} Std.` : "Keine (optional)",
+          fz.length ? "ok" : "leer")}>
+          <FahrzeugList items={r.fahrzeuge} onChange={(v) => set({ fahrzeuge: v })} />
+        </Abschnitt>
+
+        <Abschnitt {...sec("leistung", 4, "Leistung und Material",
+          leist.length ? `${leist.slice(0, 3).join(", ")}${leist.length > 3 ? " …" : ""}${mat.length ? ` · ${mat.length} Material` : ""}` : "Noch keine Leistung eingetragen",
+          leist.length ? "ok" : "leer")}>
+        <Field label="Leistungsergebnisse">
+          <BulletListInput listId="leist" items={r.leistungsergebnisse} onChange={(v) => set({ leistungsergebnisse: v })}
+            placeholder="Durchgeführte Arbeit eintragen…"
+            vorlagen={LEISTUNG_VORLAGEN}
+            />
+        </Field>
+        <Field label="Material">
+          <MaterialList items={r.material} onChange={(v) => set({ material: v })} placeholder="Bezeichnung des Materials…" />
+        </Field>
+
+        </Abschnitt>
+
+        <Abschnitt {...sec("behinderungen", 5, "Behinderungen / Erschwernisse",
+          beh.length ? beh.join(", ") : "Keine (optional)",
+          beh.length ? "ok" : "leer")}>
+          <BulletListInput listId="beh" items={r.behinderungen} onChange={(v) => set({ behinderungen: v })}
+            placeholder="z. B. Kran ab 10 Uhr nicht verfügbar, 2 Std. Wartezeit"
+            vorlagen={ERSCHWERNIS_VORLAGEN} />
+        </Abschnitt>
+
+        <Abschnitt {...sec("fotos", 6, "Fotos",
+          nFotos ? `${nFotos} ${nFotos === 1 ? "Foto" : "Fotos"}` : "Fehlt – mind. 1 Foto zum Versenden",
+          nFotos ? "ok" : "pflicht")}>
+          <div id="fotos-feld">
+            <PhotoUpload fotos={r.fotos} onChange={(v) => set({ fotos: v })} />
+          </div>
+        </Abschnitt>
+
+        <Abschnitt {...sec("regie", 7, "Regiearbeiten",
+          rSt === "nein" ? "Keine Regiearbeiten"
+            : rSt === "ja" ? (rFehler ? "Ja – Regie-Leistung fehlt noch" : `Ja · ${fmtHours(regieStd)} Std.`)
+            : "Ja / Nein noch offen – Pflichtfeld",
+          rFehler ? "pflicht" : "ok")}>
+          <RegieKarte r={r} set={set} />
+        </Abschnitt>
+
+        <Abschnitt {...sec("unterschrift", 8, "Unterschrift",
+          r.signature ? "Unterschrieben" : "Noch nicht unterschrieben",
+          r.signature ? "ok" : "leer")}>
+          <SignaturePad value={r.signature} onChange={(s) => set({ signature: s })} />
+        </Abschnitt>
+      </div>
+
+      {/* Leiste unten: schlanke Zeile „X offen“ + Senden; Liste klappt nur bei Antippen auf */}
+      <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 20, background: "#fbfbf4", borderTop: "2px solid #e3e3d4" }}>
+        {fehltAuf && fehlt.length > 0 && (
+          <div style={{ maxWidth: 860, margin: "0 auto", padding: "10px 14px 4px" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#8a5a00", marginBottom: 2 }}>Noch offen</div>
+            {fehlt.map(([key, label], i) => {
+              const abschnitt = key.split("-")[0];
+              return (
+                <button key={key} type="button" onClick={() => { setFehltAuf(false); oeffne(abschnitt); }}
+                  style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px 2px", background: "none", border: "none", borderTop: i ? "1px solid #e3e3d4" : "none", color: INK, fontSize: 16, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                  <span style={{ width: 24, height: 24, borderRadius: 999, border: "2px solid " + REGIE_ORANGE, background: "#fff1dc", color: "#8a5a00", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{ABSCHNITTE.indexOf(abschnitt) + 1}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>{label}</span>
+                  <ChevronRight size={18} color="#6b6c5c" />
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div style={{ height: 4, background: "#e3e3d4" }}>
+          <div style={{ height: 4, width: Math.round(((PFLICHT_GESAMT - fehlt.length) / PFLICHT_GESAMT) * 100) + "%", background: fehlt.length ? REGIE_ORANGE : DARKGREEN, transition: "width .25s" }} />
+        </div>
+        <div style={{ maxWidth: 860, margin: "0 auto", display: "flex", alignItems: "center", gap: 10, padding: "8px 14px calc(8px + env(safe-area-inset-bottom))" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {fehlt.length ? (
+              <button type="button" onClick={() => setFehltAuf(v => !v)} aria-expanded={fehltAuf}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "10px 12px", borderRadius: 999, border: "2px solid " + REGIE_ORANGE, background: "#fff1dc", color: "#8a5a00", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                {fehlt.length} offen {fehltAuf ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+              </button>
+            ) : (
+              <div style={{ fontSize: 14, fontWeight: 700, color: DARKGREEN, display: "flex", alignItems: "center", gap: 6 }}>
+                <Check size={18} /> Bereit zum Senden
+              </div>
+            )}
+          </div>
+          <button onClick={onShare} title="Bericht an OneDrive senden"
+            style={{ ...btnGhost, background: fehlt.length ? "#9fb7cf" : "#0078d4", color: "#fff", borderColor: fehlt.length ? "#9fb7cf" : "#0078d4", padding: "12px 18px", fontSize: 16, flexShrink: 0 }}>
+            <Send size={18} /> Senden
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Folder list view (Baustellen)
+// ============================================================
+function FolderList({ folders, onOpenFolder, onNew, onDeleteFolder, onOpenAll, onImport }) {
+  const importRef = useRef(null);
+  return (
+    <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 18px 120px" }}>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <h1 style={{ fontFamily: "Oswald, sans-serif", fontSize: 38, color: INK, margin: 0, textTransform: "uppercase", letterSpacing: 1.5, lineHeight: 1 }}>Baustellen</h1>
+          <div style={{ marginTop: 10 }}>
+            <a href="https://zimmerei-schwaighofer.at/" target="_blank" rel="noopener noreferrer"
+               title="Zur Website der Zimmerei Schwaighofer GmbH"
+               style={{ display: "inline-block", textDecoration: "none" }}>
+              <Logo small />
+            </a>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={onOpenAll} style={{ ...btnGhost, padding: "14px 18px", fontSize: 15, borderColor: DARKGREEN, color: DARKGREEN }} title="Alle Berichte aller Baustellen anzeigen (Admin-Übersicht)">
+            <FileText size={20} /> Alle Berichte
+          </button>
+          <button onClick={() => importRef.current && importRef.current.click()} style={{ ...btnGhost, padding: "14px 18px", fontSize: 15, borderColor: DARKGREEN, color: DARKGREEN }} title="Exportierte ZIP- oder PDF-Datei (z. B. aus SharePoint) zum Bearbeiten öffnen">
+            <Upload size={20} /> Bericht importieren
+          </button>
+          <input ref={importRef} type="file" accept=".zip,.pdf,application/zip,application/pdf" style={{ display: "none" }}
+            onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f && onImport) onImport(f); }} />
+          <button onClick={onNew} style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "16px 24px", borderRadius: 14, border: "none", background: GREEN, color: "#fff", fontSize: 18, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 14px rgba(91,168,58,.35)" }}>
+            <Plus size={24} /> Neuer Bericht
+          </button>
+        </div>
+      </div>
+
+      <div style={{ marginTop: 28 }}>
+        {folders.length === 0 && (
+          <div style={{ textAlign: "center", padding: "80px 20px", color: "#9a9b89" }}>
+            <FolderOpen size={56} style={{ opacity: .4 }} />
+            <p style={{ fontSize: 18, marginTop: 16 }}>Noch keine Baustellen. Tippe auf „Neuer Bericht“ und trage ein Bauvorhaben ein.</p>
+          </div>
+        )}
+        {folders.map(f => (
+          <div key={f.name} onClick={() => onOpenFolder(f.name)} style={{
+            display: "flex", alignItems: "center", gap: 16, padding: "18px 20px", marginBottom: 12,
+            background: "#fff", border: "2px solid #e3e3d4", borderRadius: 16, cursor: "pointer",
+          }}>
+            <div style={{ width: 50, height: 50, borderRadius: 12, background: "#eef7e6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <FolderOpen size={26} color={GREEN} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {f.name}
+              </div>
+              <div style={{ fontSize: 14, color: "#8a8b79", marginTop: 2 }}>
+                {f.count} {f.count === 1 ? "Bericht" : "Berichte"} · zuletzt {f.latest}
+              </div>
+            </div>
+            <button onClick={(e) => { e.stopPropagation(); onDeleteFolder(f.name); }} style={{ ...btnGhost, padding: 12, borderColor: "#e0c4c4", color: "#b04a4a" }} title="Baustelle mit allen Berichten löschen">
+              <Trash2 size={20} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// List view (Berichte einer Baustelle)
+// ============================================================
+// Kleine Status-Anzeige für den Upload-Zustand eines Berichts
+// Fortschrittsanzeige beim Erzeugen der PDF/ZIP + Upload
+// Erwartet ein "progress"-Objekt oder null (dann versteckt).
+// { step: "…", percent: 42, note: "optional" }
+function ProgressOverlay({ progress }) {
+  if (!progress) return null;
+  const pct = Math.max(0, Math.min(100, Math.round(progress.percent || 0)));
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(31,36,23,.55)",
+      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60,
+      padding: 20,
+    }}>
+      <div style={{
+        background: "#fff", borderRadius: 18, padding: "24px 26px",
+        boxShadow: "0 10px 30px rgba(0,0,0,.35)", width: "min(420px, 92vw)",
+        border: "2px solid " + GREEN,
+      }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: DARKGREEN, marginBottom: 6 }}>
+          {progress.step || "Bitte warten…"}
+        </div>
+        {progress.note && (
+          <div style={{ fontSize: 13, color: "#6b6c5c", marginBottom: 14 }}>
+            {progress.note}
+          </div>
+        )}
+        <div style={{
+          width: "100%", height: 14, borderRadius: 999,
+          background: "#e8ead8", overflow: "hidden", marginTop: 4, marginBottom: 8,
+        }}>
+          <div style={{
+            width: pct + "%", height: "100%",
+            background: `linear-gradient(90deg, ${GREEN}, ${DARKGREEN})`,
+            transition: "width .3s ease",
+          }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6b6c5c", fontWeight: 600 }}>
+          <span>{pct}%</span>
+          <span>{progress.hint || ""}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UploadBadge({ meta }) {
+  const uploaded = meta && meta.uploaded;
+  const hasError = meta && meta.uploadError;
+  let bg, color, label;
+  if (uploaded) { bg = "#eef7e6"; color = DARKGREEN; label = "Hochgeladen ✓"; }
+  else if (hasError) { bg = "#fce7e7"; color = "#a1372f"; label = "Upload-Fehler"; }
+  else { bg = "#f0f0e6"; color = "#6b6c5c"; label = "Nicht hochgeladen"; }
+  return (
+    <span style={{
+      display: "inline-block", padding: "3px 10px", borderRadius: 999,
+      background: bg, color: color, fontSize: 12, fontWeight: 700,
+      whiteSpace: "nowrap", marginLeft: 8,
+    }} title={hasError ? meta.uploadError : ""}>
+      {label}
+    </span>
+  );
+}
+function formatUploadedAt(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const pad = (n) => n < 10 ? "0" + n : "" + n;
+  return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function AllReports({ items, onOpen, onDelete, onBack, onRetry }) {
+  const [q, setQ] = useState("");
+  const [filterMode, setFilterMode] = useState("all"); // all | uploaded | pending | error
+  const norm = (s) => (s || "").toString().toLowerCase();
+  const filtered = items.filter(it => {
+    if (filterMode === "uploaded" && !it.uploaded) return false;
+    if (filterMode === "error" && !it.uploadError) return false;
+    if (filterMode === "pending" && (it.uploaded || it.uploadError)) return false;
+    if (!q.trim()) return true;
+    const hay = norm(it.bauvorhaben) + " " + norm(it.bauführer) + " " + norm(it.datum);
+    return hay.includes(norm(q));
+  });
+  // Statistik für Anzeige oben
+  const stats = items.reduce((s, it) => {
+    if (it.uploaded) s.uploaded++;
+    else if (it.uploadError) s.error++;
+    else s.pending++;
+    return s;
+  }, { uploaded: 0, error: 0, pending: 0 });
+  const filterBtn = (mode, label, count, bg, col) => (
+    <button onClick={() => setFilterMode(mode)}
+      style={{
+        ...btnGhost,
+        padding: "8px 12px", fontSize: 13, fontWeight: 700,
+        background: filterMode === mode ? bg : "#fff",
+        borderColor: filterMode === mode ? col : "#c9cabb",
+        color: col,
+      }}>
+      {label} ({count})
+    </button>
+  );
+  return (
+    <div style={{ maxWidth: 960, margin: "0 auto", padding: "28px 18px 120px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+        <button onClick={onBack} style={btnGhost}><ChevronLeft size={20} /> Zurück</button>
+        <div style={{ flex: 1 }}>
+          <h1 style={{ fontFamily: "Oswald, sans-serif", fontSize: 30, color: INK, margin: 0, textTransform: "uppercase", letterSpacing: 1 }}>Alle Berichte</h1>
+          <p style={{ margin: "4px 0 0", color: "#8a8b79", fontSize: 14 }}>
+            {items.length} {items.length === 1 ? "Bericht" : "Berichte"} insgesamt auf diesem Gerät
+          </p>
+        </div>
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <input
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Suchen nach Baustelle, Bauführer, Datum…"
+          style={{ ...inputStyle, fontSize: 16, padding: "12px 14px" }}
+        />
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+        {filterBtn("all",      "Alle",             items.length,   "#eef0e6", INK)}
+        {filterBtn("uploaded", "Hochgeladen",      stats.uploaded, "#eef7e6", DARKGREEN)}
+        {filterBtn("pending",  "Nicht hochgeladen", stats.pending, "#f0f0e6", "#6b6c5c")}
+        {filterBtn("error",    "Fehler",           stats.error,    "#fce7e7", "#a1372f")}
+      </div>
+      {filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "60px 20px", color: "#9a9b89" }}>
+          <FileText size={48} style={{ opacity: .4 }} />
+          <p style={{ fontSize: 16, marginTop: 12 }}>{q.trim() || filterMode !== "all" ? "Keine passenden Berichte." : "Noch keine Berichte gespeichert."}</p>
+        </div>
+      )}
+      {filtered.map(it => (
+        <div key={it.id} onClick={() => onOpen(it.id)} style={{
+          display: "flex", alignItems: "center", gap: 14, padding: "14px 18px", marginBottom: 10,
+          background: "#fff", border: "2px solid #e3e3d4", borderRadius: 14, cursor: "pointer",
+        }}>
+          <div style={{ width: 44, height: 44, borderRadius: 10, background: "#eef7e6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <FileText size={22} color={GREEN} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 17, fontWeight: 700, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {it.bauvorhaben || "Ohne Baustelle"}
+              </span>
+              <UploadBadge meta={it} />
+            </div>
+            <div style={{ fontSize: 13, color: "#8a8b79", marginTop: 2 }}>
+              {it.datum || "—"}{it.bauführer ? " · " + it.bauführer : ""}
+              {it.uploaded && it.uploadedAt ? " · hochgeladen " + formatUploadedAt(it.uploadedAt) : ""}
+            </div>
+          </div>
+          {onRetry && (it.uploadError || !it.uploaded) && (
+            <button onClick={(e) => { e.stopPropagation(); onRetry(it.id); }}
+              style={{ ...btnGhost, padding: "8px 12px", borderColor: "#0078d4", color: "#0078d4", fontSize: 13, fontWeight: 700 }}
+              title={it.uploadError ? "Erneut hochladen. Letzter Fehler:\n" + it.uploadError : "Bericht in OneDrive hochladen"}>
+              <Share2 size={16} /> Upload
+            </button>
+          )}
+          <button onClick={(e) => { e.stopPropagation(); onDelete(it.id); }} style={{ ...btnGhost, padding: 10, borderColor: "#e0c4c4", color: "#b04a4a" }} title="Bericht löschen">
+            <Trash2 size={18} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ReportList({ folderName, items, onOpen, onNew, onDelete, onDuplicate, onBack }) {
+  return (
+    <div style={{ maxWidth: 860, margin: "0 auto", padding: "28px 18px 120px" }}>
+      <button onClick={onBack} style={{ ...btnGhost, marginBottom: 16 }}><ChevronLeft size={20} /> Baustellen</button>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 16, marginBottom: 8, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <div style={{ fontSize: 14, color: GREEN, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>Baustelle</div>
+          <h1 style={{ fontFamily: "Oswald, sans-serif", fontSize: 34, color: INK, margin: "2px 0 0", lineHeight: 1.05 }}>{folderName}</h1>
+        </div>
+        <button onClick={() => onNew(folderName)} style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "16px 24px", borderRadius: 14, border: "none", background: GREEN, color: "#fff", fontSize: 18, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 14px rgba(91,168,58,.35)" }}>
+          <Plus size={24} /> Neuer Bericht
+        </button>
+      </div>
+
+      <div style={{ marginTop: 28 }}>
+        {items.length === 0 && (
+          <div style={{ textAlign: "center", padding: "80px 20px", color: "#9a9b89" }}>
+            <FileText size={56} style={{ opacity: .4 }} />
+            <p style={{ fontSize: 18, marginTop: 16 }}>Noch keine Berichte für diese Baustelle.</p>
+          </div>
+        )}
+        {items.map(it => (
+          <div key={it.id} onClick={() => onOpen(it.id)} style={{
+            display: "flex", alignItems: "center", gap: 16, padding: "18px 20px", marginBottom: 12,
+            background: "#fff", border: "2px solid #e3e3d4", borderRadius: 16, cursor: "pointer",
+          }}>
+            <div style={{ width: 50, height: 50, borderRadius: 12, background: "#eef7e6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <FileText size={26} color={GREEN} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 19, fontWeight: 700, color: INK }}>{it.datum}</span>
+                <UploadBadge meta={it} />
+              </div>
+              <div style={{ fontSize: 14, color: "#8a8b79", marginTop: 2 }}>
+                {it.bauführer ? "Bauführer: " + it.bauführer : "Kein Bauführer eingetragen"}
+                {it.uploaded && it.uploadedAt ? " · hochgeladen " + formatUploadedAt(it.uploadedAt) : ""}
+              </div>
+            </div>
+            <button onClick={(e) => { e.stopPropagation(); onDuplicate(it.id); }} style={{ ...btnGhost, padding: 12, borderColor: "#c9cabb", color: DARKGREEN }} title="Als Vorlage duplizieren">
+              <Copy size={20} />
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); onDelete(it.id); }} style={{ ...btnGhost, padding: 12, borderColor: "#e0c4c4", color: "#b04a4a" }}>
+              <Trash2 size={20} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// PDF export (jsPDF loaded from CDN)
+// ============================================================
+function loadScript(src, checkFn) {
+  // checkFn: optionale Funktion, die prüft ob die Bibliothek schon verfügbar ist
+  return new Promise((resolve, reject) => {
+    if (checkFn && checkFn()) return resolve();
+    if (document.querySelector(`script[src="${src}"]`)) {
+      // schon im DOM – kurz warten bis verfügbar
+      let tries = 0;
+      const iv = setInterval(() => {
+        if (!checkFn || checkFn()) { clearInterval(iv); resolve(); }
+        else if (++tries > 50) { clearInterval(iv); reject(new Error("Skript nicht geladen: " + src)); }
+      }, 100);
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error("Skript konnte nicht geladen werden (Internet?)"));
+    document.body.appendChild(s);
+    setTimeout(() => { if (checkFn && !checkFn()) reject(new Error("Zeitüberschreitung beim Laden")); }, 8000);
+  });
+}
+const hasJsPDF = () => !!(window.jspdf && window.jspdf.jsPDF);
+const hasJSZip = () => !!window.JSZip;
+const JSZIP_URL = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+
+// ============================================================
+// Berichtsdaten im Export mitspeichern (für nachträgliche Bearbeitung im Büro)
+//  - ZIP: zusätzliche Datei "bericht-daten.json"
+//  - PDF (ohne Fotos): Datenblock hinter dem PDF-Ende, PDF-Programme ignorieren ihn
+// ============================================================
+const BTB_JSON_NAME = "bericht-daten.json";
+const BTB_DATA_MARKER = "%BTBDATA:";
+
+function utf8ToBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+function base64ToUtf8(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+// Bericht in ein übertragbares Format bringen (ohne Upload-Status, ohne Original-Fotos –
+// die liegen als eigene Dateien im ZIP und werden über "zipFile" zugeordnet).
+function reportToTransfer(r, fotoNames) {
+  const { uploaded, uploadedAt, uploadedFileName, uploadError, uploadTriedAt, ...rest } = r;
+  const fotos = (Array.isArray(r.fotos) ? r.fotos : []).filter(Boolean).map(f => {
+    const { originalUrl, hasOriginal, hasPreview, originalFreed, exportUrl, ...fr } = f;
+    return { ...fr, zipFile: (fotoNames && fotoNames[f.id]) || null };
+  });
+  return { format: "btb-bericht", version: 1, exportiertAm: Date.now(), bericht: { ...rest, fotos } };
+}
+
+// Liest eine exportierte ZIP- oder PDF-Datei wieder als Bericht ein.
+async function importReportFile(file) {
+  const buf = await file.arrayBuffer();
+  const head = new Uint8Array(buf, 0, Math.min(4, buf.byteLength));
+  const isZip = head[0] === 0x50 && head[1] === 0x4B; // "PK"
+  let transfer, zip = null;
+  if (isZip) {
+    await loadScript(JSZIP_URL, hasJSZip);
+    zip = await window.JSZip.loadAsync(buf);
+    const jf = zip.file(BTB_JSON_NAME) || zip.file(/bericht-daten\.json$/)[0];
+    if (!jf) throw new Error("Diese ZIP-Datei enthält keine Berichtsdaten – sie wurde vermutlich vor dem Update erstellt.");
+    transfer = JSON.parse(await jf.async("string"));
+  } else {
+    const text = new TextDecoder("latin1").decode(buf);
+    const i = text.lastIndexOf(BTB_DATA_MARKER);
+    if (i < 0) throw new Error("Dieses PDF enthält keine Berichtsdaten – es wurde vermutlich vor dem Update erstellt.");
+    const m = /^[A-Za-z0-9+/=]+/.exec(text.substring(i + BTB_DATA_MARKER.length));
+    if (!m) throw new Error("Berichtsdaten im PDF sind beschädigt.");
+    transfer = JSON.parse(base64ToUtf8(m[0]));
+  }
+  if (!transfer || transfer.format !== "btb-bericht" || !transfer.bericht || !transfer.bericht.id) {
+    throw new Error("Unbekanntes Datenformat.");
+  }
+  const rep = transfer.bericht;
+  if (Array.isArray(rep.fotos)) {
+    for (const f of rep.fotos) {
+      if (zip && f.zipFile) {
+        const zf = zip.file(f.zipFile);
+        if (zf) {
+          const b64 = await zf.async("base64");
+          const ext = f.zipFile.split(".").pop().toLowerCase();
+          const mime = ext === "png" ? "image/png" : (ext === "heic" ? "image/heic" : "image/jpeg");
+          f.originalUrl = `data:${mime};base64,${b64}`;
+        }
+      }
+      delete f.zipFile;
+    }
+  }
+  rep.bueroKorrektur = true;
+  rep.uploaded = false;
+  rep.uploadError = "";
+  return rep;
+}
+
+async function exportPDF(r, onProgress) {
+  const prog = (step, percent, note, hint) => {
+    if (typeof onProgress === "function") onProgress({ step, percent, note, hint });
+  };
+  prog("Bericht wird vorbereitet…", 3);
+  await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js", hasJsPDF);
+  prog("PDF wird erstellt…", 8);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const ML = 40;
+  // 2 Nachkommastellen, OHNE Rundung (abgeschnitten)
+  const fmt2 = (h) => {
+    if (h == null || isNaN(h)) return "0,00";
+    const sign = h < 0 ? "-" : "";
+    const abs = Math.abs(h);
+    const truncated = Math.floor(abs * 100) / 100;
+    return sign + truncated.toFixed(2).replace(".", ",");
+  };
+  // Mehr Platz oben für Logo, damit Trennlinie es nicht durchschneidet.
+  // (5 mm zusätzlicher Abstand unter dem Logo)
+  let y = 104;
+
+  // Logo komplett im oberen Bereich (über der Trennlinie)
+  const LOGO_W = 140, LOGO_H = 60;
+  try { doc.addImage(LOGO, "JPEG", W - ML - LOGO_W, 30, LOGO_W, LOGO_H); } catch (e) {}
+  doc.setTextColor(40, 40, 30);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(24);
+  doc.text("BAU-TAGESBERICHT", ML, 65);
+
+  // Trennlinie unter Header
+  doc.setDrawColor(200); doc.line(ML, y, W - ML, y); y += 18;
+
+  const line = (label, val) => {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10);
+    doc.text(label, ML, y);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(11);
+    const lines = doc.splitTextToSize(val || "—", W - ML - 130);
+    doc.text(lines, ML + 120, y);
+    y += Math.max(18, lines.length * 14 + 4);
+  };
+
+  // Datum im deutschen Format TT.MM.JJJJ ausgeben
+  const datumDeutsch = (() => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(r.datum || "");
+    return m ? `${m[3]}.${m[2]}.${m[1]}` : (r.datum || "");
+  })();
+  line("Datum:", datumDeutsch);
+  line("Bauvorhaben:", r.bauvorhaben);
+  if (r.techniker) line("Techniker:", r.techniker);
+  line("Bauführer:", r.bauführer);
+  const wit = Object.entries(r.witterung).filter(([, v]) => v).map(([k]) => k.charAt(0).toUpperCase() + k.slice(1)).join(", ");
+  line("Witterung:", wit);
+
+  // Arbeiter-Tabelle
+  y += 8; doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+  doc.text("Anzahl der beschäftigten Arbeiter", ML, y); y += 12;
+
+  const TBL_W = W - 2 * ML;
+  const colKategorie = 140;
+  const colAnzahl = 60;
+  const colStunden = 70;
+  const colNamen = TBL_W - colKategorie - colAnzahl - colStunden;
+  const xKat = ML;
+  const xAnz = xKat + colKategorie;
+  const xStd = xAnz + colAnzahl;
+  const xNam = xStd + colStunden;
+
+  // Tabellenkopf
+  const headerY = y;
+  doc.setFillColor(238, 240, 230); // hellgrün
+  doc.rect(ML, headerY, TBL_W, 20, "F");
+  doc.setDrawColor(180); doc.setLineWidth(0.5);
+  doc.rect(ML, headerY, TBL_W, 20);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(62, 122, 40);
+  doc.text("Kategorie", xKat + 6, headerY + 14);
+  doc.text("Anzahl", xAnz + colAnzahl / 2, headerY + 14, { align: "center" });
+  doc.text("Stunden", xStd + colStunden / 2, headerY + 14, { align: "center" });
+  doc.text("Namen", xNam + 6, headerY + 14);
+  y = headerY + 20;
+  doc.setTextColor(40, 40, 30);
+
+  const rows = [
+    ["vorarbeiter", "Vorarbeiter"],
+    ["facharbeiter", "Facharbeiter"],
+    ["lehrling", "Lehrlinge"],
+  ];
+  doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+  const parse = (v) => { const n = parseFloat(String(v || "").replace(",", ".")); return isNaN(n) ? 0 : n; };
+  const hoursFor = (a, name) => {
+    if (a && a.stundenPro && a.stundenPro[name] !== undefined && a.stundenPro[name] !== "") return parse(a.stundenPro[name]);
+    return parse(a && a.std);
+  };
+  rows.forEach(([k, lbl], i) => {
+    const a = r.arbeiter[k] || {};
+    const namen = (a.namen || "").trim();
+    const nameArr = namen ? namen.split(",").map(s => s.trim()).filter(Boolean) : [];
+    const anzText = nameArr.length > 0 ? String(nameArr.length) : (a.n || "—");
+    // Namen mit individuellen Stunden zusammensetzen: "Name (8 Std.)"
+    const nameWithHours = nameArr.length > 0
+      ? nameArr.map(n => {
+          const h = hoursFor(a, n);
+          return h > 0 ? `${n} (${fmt2(h)} Std.)` : n;
+        })
+      : [];
+    const nameDisplay = nameWithHours.length > 0 ? nameWithHours.join(", ") : (namen || "—");
+    const nameLines = doc.splitTextToSize(nameDisplay, colNamen - 12);
+    const rowH = Math.max(20, nameLines.length * 12 + 8);
+    if (y + rowH > H - 60) { doc.addPage(); y = 50; }
+    // Zeilen-Hintergrund (zebra)
+    if (i % 2 === 0) {
+      doc.setFillColor(251, 251, 244);
+      doc.rect(ML, y, TBL_W, rowH, "F");
+    }
+    doc.setDrawColor(225); doc.setLineWidth(0.5);
+    doc.rect(ML, y, TBL_W, rowH);
+    // Spalten-Trenner
+    [xAnz, xStd, xNam].forEach(x => doc.line(x, y, x, y + rowH));
+    // Inhalt
+    doc.setTextColor(40, 40, 30);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+    doc.text(lbl, xKat + 6, y + 14);
+    doc.text(anzText, xAnz + colAnzahl / 2, y + 14, { align: "center" });
+    // Stunden-Spalte: Summe der Kategorie
+    let catSum = 0;
+    if (nameArr.length > 0) nameArr.forEach(n => { catSum += hoursFor(a, n); });
+    else catSum = parse(a.std) * (parse(a.n) > 0 ? parse(a.n) : 1);
+    const catStr = catSum > 0 ? fmt2(catSum) : "—";
+    doc.text(catStr, xStd + colStunden / 2, y + 14, { align: "center" });
+    nameLines.forEach((ln, j) => doc.text(ln, xNam + 6, y + 14 + j * 12));
+    y += rowH;
+  });
+
+  // Gesamt-Zeile
+  if (y + 22 > H - 60) { doc.addPage(); y = 50; }
+  doc.setFillColor(238, 247, 230);
+  doc.rect(ML, y, TBL_W, 22, "F");
+  doc.setDrawColor(180); doc.rect(ML, y, TBL_W, 22);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(62, 122, 40);
+  doc.text("Arbeitsleistung ohne Gerät", xKat + 6, y + 15);
+  // Gesamtstunden über alle Kategorien
+  let total = 0;
+  Object.entries(r.arbeiter || {}).forEach(([key, a]) => {
+    const namen = (a && a.namen) ? a.namen.split(",").map(s => s.trim()).filter(Boolean) : [];
+    if (namen.length > 0) namen.forEach(n => { total += hoursFor(a, n); });
+    else { const std = parse(a && a.std); total += std * (parse(a && a.n) > 0 ? parse(a.n) : 1); }
+  });
+  const totalStr = fmt2(total) + " Std.";
+  doc.text(totalStr, xNam + colNamen - 6, y + 15, { align: "right" });
+  doc.setTextColor(40, 40, 30);
+  y += 30;
+
+  // Absatz / Leerraum zwischen Tabelle und Leistungsergebnissen (~5 mm)
+  y += 14;
+
+  const block = (label, val) => {
+    if (y > H - 100) { doc.addPage(); y = 50; }
+    y += 6; doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    doc.text(label, ML, y); y += 15;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+    const lines = doc.splitTextToSize(val || "—", W - 2 * ML);
+    doc.text(lines, ML, y); y += lines.length * 13 + 6;
+  };
+  const bulletBlock = (label, arr, labelColor) => {
+    if (y > H - 100) { doc.addPage(); y = 50; }
+    y += 6; doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    if (labelColor) doc.setTextColor(...labelColor);
+    doc.text(label, ML, y); y += 15;
+    doc.setTextColor(40, 40, 30);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+    const items = Array.isArray(arr) ? arr.filter(p => p && p.trim()) : [];
+    if (items.length === 0) { doc.text("—", ML, y); y += 14; return; }
+    items.forEach(p => {
+      if (y > H - 60) { doc.addPage(); y = 50; }
+      const lines = doc.splitTextToSize(p, W - 2 * ML - 16);
+      doc.text("•", ML + 2, y);
+      doc.text(lines, ML + 16, y);
+      y += lines.length * 13 + 3;
+    });
+  };
+  // Material-Block: kleine Tabelle Bezeichnung / Menge / Einheit
+  const materialBlock = (label, arr, labelColor) => {
+    if (y > H - 110) { doc.addPage(); y = 50; }
+    y += 6; doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    if (labelColor) doc.setTextColor(...labelColor);
+    doc.text(label, ML, y); y += 14;
+    doc.setTextColor(40, 40, 30);
+    const items = Array.isArray(arr) ? arr.filter(it => it && (it.bezeichnung || it.menge || it.einheit)) : [];
+    if (items.length === 0) {
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      doc.text("—", ML, y); y += 14; return;
+    }
+    const tblW = W - 2 * ML;
+    const cBez = tblW * 0.62;
+    const cMen = tblW * 0.18;
+    const cEin = tblW * 0.20;
+    // Kopf
+    doc.setFillColor(238, 240, 230);
+    doc.rect(ML, y, tblW, 16, "F");
+    doc.setDrawColor(200); doc.setLineWidth(0.4);
+    doc.rect(ML, y, tblW, 16);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(62, 122, 40);
+    doc.text("Bezeichnung", ML + 5, y + 11);
+    doc.text("Menge", ML + cBez + cMen / 2, y + 11, { align: "center" });
+    doc.text("Einheit", ML + cBez + cMen + cEin / 2, y + 11, { align: "center" });
+    y += 16;
+    doc.setTextColor(40, 40, 30);
+    items.forEach((it, i) => {
+      const bezLines = doc.splitTextToSize(it.bezeichnung || "—", cBez - 10);
+      const rowH = Math.max(16, bezLines.length * 12 + 4);
+      if (y + rowH > H - 60) { doc.addPage(); y = 50; }
+      if (i % 2 === 0) {
+        doc.setFillColor(251, 251, 244);
+        doc.rect(ML, y, tblW, rowH, "F");
+      }
+      doc.setDrawColor(230); doc.rect(ML, y, tblW, rowH);
+      doc.line(ML + cBez, y, ML + cBez, y + rowH);
+      doc.line(ML + cBez + cMen, y, ML + cBez + cMen, y + rowH);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      bezLines.forEach((ln, j) => doc.text(ln, ML + 5, y + 12 + j * 12));
+      doc.text(it.menge || "—", ML + cBez + cMen / 2, y + 12, { align: "center" });
+      doc.text(it.einheit || "—", ML + cBez + cMen + cEin / 2, y + 12, { align: "center" });
+      y += rowH;
+    });
+    y += 6;
+  };
+  // Fahrzeuge-Block mit eigener Stundensumme
+  const fahrzeugBlock = () => {
+    const items = Array.isArray(r.fahrzeuge) ? r.fahrzeuge.filter(it => it && (it.name || it.std)) : [];
+    if (items.length === 0) return;
+    if (y > H - 110) { doc.addPage(); y = 50; }
+    y += 6; doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    doc.text("Fahrzeuge / Hebegeräte", ML, y); y += 14;
+    const tblW = W - 2 * ML;
+    const cName = tblW * 0.78;
+    const cStd = tblW * 0.22;
+    // Kopf
+    doc.setFillColor(255, 240, 220);
+    doc.rect(ML, y, tblW, 16, "F");
+    doc.setDrawColor(200); doc.rect(ML, y, tblW, 16);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(138, 90, 28);
+    doc.text("Fahrzeug / Hebegerät", ML + 5, y + 11);
+    doc.text("Stunden", ML + cName + cStd / 2, y + 11, { align: "center" });
+    y += 16;
+    doc.setTextColor(40, 40, 30);
+    let totalFz = 0;
+    items.forEach((it, i) => {
+      const rowH = 18;
+      if (y + rowH > H - 60) { doc.addPage(); y = 50; }
+      if (i % 2 === 0) { doc.setFillColor(251, 251, 244); doc.rect(ML, y, tblW, rowH, "F"); }
+      doc.setDrawColor(230); doc.rect(ML, y, tblW, rowH);
+      doc.line(ML + cName, y, ML + cName, y + rowH);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      doc.text(it.name || "—", ML + 5, y + 13);
+      doc.text(it.std || "—", ML + cName + cStd / 2, y + 13, { align: "center" });
+      const n = parseFloat(String(it.std || "").replace(",", "."));
+      if (!isNaN(n)) totalFz += n;
+      y += rowH;
+    });
+    // Summen-Zeile
+    if (y + 20 > H - 60) { doc.addPage(); y = 50; }
+    doc.setFillColor(255, 232, 200);
+    doc.rect(ML, y, tblW, 20, "F");
+    doc.setDrawColor(180); doc.rect(ML, y, tblW, 20);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(138, 90, 28);
+    doc.text("Gerätestunden gesamt", ML + 5, y + 13);
+    const totalFzStr = fmt2(totalFz) + " Std.";
+    doc.text(totalFzStr, ML + tblW - 6, y + 13, { align: "right" });
+    doc.setTextColor(40, 40, 30);
+    y += 26;
+  };
+  // Regie-Leistungen-Block: Bezeichnung / Personen / Stunden mit Gesamt
+  const REGIE_PDF = [200, 110, 0];
+  const regieLeistungBlock = () => {
+    const items = Array.isArray(r.regieLeistungen) ? r.regieLeistungen.filter(it => it && (it.bezeichnung || it.personen || it.stunden)) : [];
+    if (y > H - 110) { doc.addPage(); y = 50; }
+    y += 6; doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    doc.setTextColor(...REGIE_PDF);
+    doc.text("Regie-Leistungen", ML, y); y += 14;
+    doc.setTextColor(40, 40, 30);
+    if (items.length === 0) {
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      doc.text("—", ML, y); y += 14; return;
+    }
+    const tblW = W - 2 * ML;
+    const cBez = tblW * 0.60;
+    const cPer = tblW * 0.18;
+    const cStd = tblW * 0.22;
+    // Kopf
+    doc.setFillColor(238, 240, 230);
+    doc.rect(ML, y, tblW, 16, "F");
+    doc.setDrawColor(200); doc.setLineWidth(0.4);
+    doc.rect(ML, y, tblW, 16);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(62, 122, 40);
+    doc.text("Bezeichnung", ML + 5, y + 11);
+    doc.text("Personen", ML + cBez + cPer / 2, y + 11, { align: "center" });
+    doc.text("Stunden", ML + cBez + cPer + cStd / 2, y + 11, { align: "center" });
+    y += 16;
+    doc.setTextColor(40, 40, 30);
+    const parse = (v) => { const n = parseFloat(String(v || "").replace(",", ".")); return isNaN(n) ? 0 : n; };
+    let totalRegie = 0;
+    items.forEach((it, i) => {
+      const bezLines = doc.splitTextToSize(it.bezeichnung || "—", cBez - 10);
+      const rowH = Math.max(16, bezLines.length * 12 + 4);
+      if (y + rowH > H - 60) { doc.addPage(); y = 50; }
+      if (i % 2 === 0) { doc.setFillColor(251, 251, 244); doc.rect(ML, y, tblW, rowH, "F"); }
+      doc.setDrawColor(230); doc.rect(ML, y, tblW, rowH);
+      doc.line(ML + cBez, y, ML + cBez, y + rowH);
+      doc.line(ML + cBez + cPer, y, ML + cBez + cPer, y + rowH);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+      bezLines.forEach((ln, j) => doc.text(ln, ML + 5, y + 12 + j * 12));
+      doc.text(it.personen || "—", ML + cBez + cPer / 2, y + 12, { align: "center" });
+      doc.text(it.stunden || "—", ML + cBez + cPer + cStd / 2, y + 12, { align: "center" });
+      const std = parse(it.stunden);
+      const per = parse(it.personen);
+      totalRegie += std * (per > 0 ? per : 1);
+      y += rowH;
+    });
+    // Summe
+    if (y + 20 > H - 60) { doc.addPage(); y = 50; }
+    doc.setFillColor(238, 247, 230);
+    doc.rect(ML, y, tblW, 20, "F");
+    doc.setDrawColor(180); doc.rect(ML, y, tblW, 20);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(62, 122, 40);
+    doc.text("Regie-Stunden gesamt (zusätzlich)", ML + 5, y + 13);
+    const totalRegieStr = fmt2(totalRegie) + " Std.";
+    doc.text(totalRegieStr, ML + tblW - 6, y + 13, { align: "right" });
+    doc.setTextColor(40, 40, 30);
+    y += 26;
+  };
+  bulletBlock("Leistungsergebnisse", r.leistungsergebnisse);
+  materialBlock("Material", r.material);
+  // Regie: bei „Nein“ ausdrücklich vermerken, sonst Tabellen (orange Überschriften)
+  if (regieStatus(r) === "nein") {
+    if (y > H - 80) { doc.addPage(); y = 50; }
+    y += 6; doc.setFont("helvetica", "bold"); doc.setFontSize(11);
+    doc.setTextColor(...REGIE_PDF);
+    doc.text("Regiearbeiten", ML, y); y += 15;
+    doc.setTextColor(40, 40, 30);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+    doc.text("Keine Regiearbeiten", ML, y); y += 14;
+  } else {
+    regieLeistungBlock();
+    materialBlock("Regie-Material", r.regieMaterial, REGIE_PDF);
+  }
+  fahrzeugBlock();
+  // Behinderungen / Erschwernisse nur drucken, wenn etwas eingetragen ist
+  if (Array.isArray(r.behinderungen) && r.behinderungen.some(p => p && p.trim())) {
+    bulletBlock("Behinderungen / Erschwernisse", r.behinderungen, [176, 74, 74]);
+  }
+
+  // Unterschrift
+  if (y > H - 200) { doc.addPage(); y = 50; }
+  y += 24;
+  if (r.signature) {
+    try { doc.addImage(r.signature, "PNG", ML, y, 260, 100); } catch (e) {}
+  }
+  doc.setDrawColor(0); doc.setLineWidth(0.6);
+  doc.line(ML, y + 110, ML + 300, y + 110);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+  doc.text("Unterschrift des Bauführers/-leiters", ML, y + 122);
+  if (r.bueroKorrektur) {
+    const d = new Date(r.updatedAt || Date.now());
+    const dd = `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
+    doc.setFont("helvetica", "italic"); doc.setFontSize(8); doc.setTextColor(120, 120, 110);
+    doc.text(`Nachträglich im Büro bearbeitet am ${dd}`, ML, y + 136);
+    doc.setTextColor(40, 40, 30);
+  }
+
+  // Foto-Seite(n)
+  const fotos = Array.isArray(r.fotos) ? r.fotos.filter(f => f && f.dataUrl) : [];
+  if (fotos.length > 0) {
+    prog("Fotos werden analysiert…", 30, `${fotos.length} Foto${fotos.length === 1 ? "" : "s"} werden verarbeitet`);
+    // Vorab die Bildmaße aller Fotos laden (asynchron, damit wir Seitenverhältnis kennen)
+    const imgDims = await Promise.all(fotos.map(f => new Promise((resolve) => {
+      try {
+        const img = new Image();
+        img.onload = () => resolve({ w: img.naturalWidth || 4, h: img.naturalHeight || 3 });
+        img.onerror = () => resolve({ w: 4, h: 3 });
+        img.src = f.dataUrl;
+      } catch { resolve({ w: 4, h: 3 }); }
+    })));
+
+    doc.addPage();
+    let py = 50;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(40, 40, 30);
+    doc.text("Baufortschritt – Fotos", ML, py); py += 20;
+    doc.setDrawColor(200); doc.line(ML, py, W - ML, py); py += 16;
+
+    // 2 Spalten Layout: einheitliche Zellhöhe, aber Bild wird proportional eingepasst
+    const gap = 16;
+    const cellW = (W - 2 * ML - gap) / 2;
+    const maxImgH = cellW * 0.9;   // etwas mehr Platz nach unten, damit Hochkant-Fotos gut wirken
+    const cellH = maxImgH + 36;    // Bild + Beschriftung
+
+    // Fotos einbetten: 35% - 70% Fortschritt (linear pro Foto)
+    for (let i = 0; i < fotos.length; i++) {
+      const col = i % 2;
+      if (col === 0 && py + cellH > H - 40) { doc.addPage(); py = 50; }
+      const x = ML + col * (cellW + gap);
+      const dim = imgDims[i] || { w: 4, h: 3 };
+      const ratio = dim.w / dim.h;
+      let drawW = cellW;
+      let drawH = drawW / ratio;
+      if (drawH > maxImgH) {
+        drawH = maxImgH;
+        drawW = drawH * ratio;
+      }
+      const offsetX = x + (cellW - drawW) / 2;
+      const offsetY = py + (maxImgH - drawH) / 2;
+      try { doc.addImage(fotos[i].dataUrl, "JPEG", offsetX, offsetY, drawW, drawH); } catch (e) {}
+      doc.setDrawColor(220);
+      doc.rect(offsetX, offsetY, drawW, drawH);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(80, 80, 80);
+      const cap = (fotos[i].kommentar || "").trim();
+      if (cap) {
+        const capLines = doc.splitTextToSize(cap, cellW);
+        doc.text(capLines.slice(0, 2), x, py + maxImgH + 14);
+      }
+      if (col === 1) py += cellH;
+      // Fortschritt: 35% -> 70% linear über alle Fotos verteilen
+      const pct = 35 + Math.round(((i + 1) / fotos.length) * 35);
+      prog("Fotos werden eingefügt…", pct, `Foto ${i + 1} von ${fotos.length}`);
+      // Ganz kurz "Luft holen", damit der Browser das UI zeichnen kann
+      if (i % 2 === 1) await new Promise(res => setTimeout(res, 0));
+    }
+  }
+
+  const sanitize = (s) => (s || "").replace(/[^a-zA-ZäöüÄÖÜß0-9-]+/g, "_").replace(/^_|_$/g, "");
+  const baustelle = sanitize(r.bauvorhaben) || "Bericht";
+  // Datum von YYYY-MM-DD in TT-MM-JJJJ umwandeln (Windows erlaubt keine / im Dateinamen)
+  const datumTMJ = (() => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(r.datum || "");
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : (r.datum || "ohne-Datum");
+  })();
+  // Vorarbeiter in den Dateinamen, damit zwei Berichte vom selben Bauvorhaben/Tag
+  // sich in SharePoint nicht gegenseitig überschreiben. Bei mehreren: der erste.
+  // Fallback: Bauführer. Ist beides leer, entfällt dieser Teil.
+  const ersterVorarbeiter = (r.arbeiter?.vorarbeiter?.namen || "")
+    .split(",").map(s => s.trim()).filter(Boolean)[0] || r.bauführer || "";
+  const vorarbeiterTeil = sanitize(ersterVorarbeiter);
+  const baseName  = `${baustelle}_${datumTMJ}${vorarbeiterTeil ? "_" + vorarbeiterTeil : ""}${r.bueroKorrektur ? "_korrigiert" : ""}`;
+  const pdfName   = `${baseName}.pdf`;
+  // Export-Version bevorzugen; wurde sie nach dem Upload bereits freigegeben,
+  // dient die Vorschau (1280 px) als Ersatz – so entsteht weiterhin genau ein ZIP.
+  const fotosVoll = Array.isArray(r.fotos)
+    ? r.fotos.filter(f => f && (f.originalUrl || f.dataUrl)).map(f => ({ ...f, exportUrl: f.originalUrl || f.dataUrl }))
+    : [];
+
+  // Wenn keine Fotos: nur PDF
+  if (fotosVoll.length === 0) {
+    prog("PDF wird finalisiert…", 95);
+    const pdfBytes = doc.output("arraybuffer");
+    const datenBlock = "\n" + BTB_DATA_MARKER + utf8ToBase64(JSON.stringify(reportToTransfer(r, {}))) + "\n";
+    const pdfBlob = new Blob([pdfBytes, datenBlock], { type: "application/pdf" });
+    prog("Fertig", 100);
+    return { blob: pdfBlob, fileName: pdfName, mime: "application/pdf" };
+  }
+
+  // Mit Fotos: ZIP mit PDF + Original-Bildern
+  prog("ZIP wird vorbereitet…", 72);
+  await loadScript(JSZIP_URL, hasJSZip);
+  const zip = new window.JSZip();
+  const fotoNames = {};
+  const pdfBlob = doc.output("blob");
+  zip.file(pdfName, pdfBlob);
+  const fotosOrdner = zip.folder("Fotos");
+  for (let i = 0; i < fotosVoll.length; i++) {
+    const foto = fotosVoll[i];
+    const dataUrl = foto.exportUrl;
+    const comma = dataUrl.indexOf(",");
+    const meta = dataUrl.substring(5, comma);
+    const isBase64 = meta.includes("base64");
+    const mime = meta.split(";")[0] || "image/jpeg";
+    const ext = mime.includes("png") ? "png" : (mime.includes("heic") ? "heic" : "jpg");
+    const data = dataUrl.substring(comma + 1);
+    const num = String(i + 1).padStart(2, "0");
+    const kommentar = sanitize(foto.kommentar || "").substring(0, 60);
+    const fname = `${baseName}_${num}${kommentar ? "_" + kommentar : ""}.${ext}`;
+    fotosOrdner.file(fname, data, { base64: isBase64 });
+    fotoNames[foto.id] = "Fotos/" + fname;
+    const pct = 72 + Math.round(((i + 1) / fotosVoll.length) * 10); // 72 -> 82
+    prog("Originalfotos werden gepackt…", pct, `Foto ${i + 1} von ${fotosVoll.length}`);
+    if (i % 3 === 2) await new Promise(res => setTimeout(res, 0));
+  }
+  zip.file(BTB_JSON_NAME, JSON.stringify(reportToTransfer(r, fotoNames)));
+  prog("ZIP wird komprimiert…", 85, null, "Kann bei vielen Fotos einen Moment dauern");
+  const zipBlob = await zip.generateAsync(
+    { type: "blob" },
+    (m) => {
+      // JSZip liefert Fortschritt 0..100 während der Komprimierung
+      const pct = 85 + Math.round((m.percent / 100) * 10); // 85 -> 95
+      prog("ZIP wird komprimiert…", pct);
+    }
+  );
+  prog("Fertig", 100);
+  return { blob: zipBlob, fileName: `${baseName}.zip`, mime: "application/zip" };
+}
+
+// Lädt einen Blob über einen versteckten Link herunter (Browser-Download).
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Versucht, den nativen Teilen-Dialog des Geräts zu öffnen (iOS: "Auf Dateien sichern" / "OneDrive").
+// Falls Web Share nicht unterstützt wird, fällt es auf einen normalen Download zurück.
+async function shareBlob(blob, fileName, title) {
+  try {
+    if (navigator.canShare && typeof File !== "undefined") {
+      const file = new File([blob], fileName, { type: blob.type || "application/octet-stream" });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: title || fileName, text: title || fileName });
+        return { shared: true };
+      }
+    }
+  } catch (e) {
+    // Nutzer hat abgebrochen oder Share nicht erlaubt – auf Download zurückfallen
+    console.warn("share failed, fallback to download:", e);
+  }
+  downloadBlob(blob, fileName);
+  return { shared: false };
+}
+
+// Ordnername für den zuständigen Techniker: Zeichen entfernen, die SharePoint in
+// Ordnernamen nicht erlaubt. Leer → Sammelordner "_Ohne Techniker".
+function technikerOrdner(name) {
+  const clean = String(name || "")
+    .replace(/[\\/:*?"<>|#%~&{}]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s.]+|[\s.]+$/g, "");
+  return clean || "_Ohne Techniker";
+}
+
+// Lädt einen Blob als Base64 an den Power-Automate-Flow hoch.
+// Der Flow legt die Datei im Unterordner des Technikers ab (Feld "techniker").
+async function uploadToCloud(blob, fileName, onProgress, techniker) {
+  if (!UPLOAD_URL) throw new Error("Keine Upload-URL hinterlegt");
+  // Letzte Sicherung: ohne Techniker/Bauleiter wird nichts hochgeladen
+  if (!String(techniker || "").trim()) throw new Error("Kein Techniker (Bauleiter) gewählt – Upload nicht möglich");
+  const prog = (percent, note, hint) => {
+    if (typeof onProgress === "function") onProgress({ step: "Wird zu OneDrive hochgeladen…", percent, note, hint });
+  };
+  prog(2, "Datei wird vorbereitet");
+  // Blob -> Base64 (ohne "data:...;base64,"-Präfix)
+  const base64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const s = reader.result || "";
+      const comma = s.indexOf(",");
+      resolve(comma >= 0 ? s.substring(comma + 1) : s);
+    };
+    reader.onerror = () => reject(reader.error || new Error("read failed"));
+    reader.readAsDataURL(blob);
+  });
+  const body = JSON.stringify({ fileName, fileContent: base64, techniker: technikerOrdner(techniker) });
+  prog(10, "Verbindung wird aufgebaut");
+  // XHR statt fetch, damit wir echten Upload-Fortschritt bekommen
+  return await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", UPLOAD_URL, true);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    if (xhr.upload) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = 10 + Math.round((e.loaded / e.total) * 80); // 10 -> 90
+          const mb = (e.loaded / (1024 * 1024)).toFixed(1);
+          const totalMb = (e.total / (1024 * 1024)).toFixed(1);
+          prog(pct, `${mb} MB von ${totalMb} MB übertragen`);
+        }
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        prog(98, "OneDrive verarbeitet die Datei…");
+        resolve(true);
+      } else {
+        reject(new Error("Upload fehlgeschlagen: " + xhr.status + " " + (xhr.responseText || "").substring(0, 150)));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Netzwerk-Fehler beim Upload (kein Internet?)"));
+    xhr.ontimeout = () => reject(new Error("Zeitüberschreitung beim Upload"));
+    xhr.timeout = 120000; // 2 Minuten
+    xhr.send(body);
+  });
+}
+
+// ============================================================
+// Root
+// ============================================================
+export default function App() {
+  const [view, setView] = useState("folders"); // folders | list | edit
+  const [currentFolder, setCurrentFolder] = useState(null);
+  const [index, setIndex] = useState([]);
+  const [current, setCurrent] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState("");
+  const [progress, setProgress] = useState(null); // {step, percent, note, hint} oder null
+
+  useEffect(() => {
+    (async () => {
+      // Einmalig: Foto-Vorschauen alter Berichte aus dem localStorage in die IDB verschieben
+      await vorschauenMigrieren(false);
+      const idx = await loadIndex();
+      idx.sort((a, b) => b.updatedAt - a.updatedAt);
+      setIndex(idx);
+      setLoading(false);
+    })();
+  }, []);
+
+  const toastTimer = useRef(null);
+  const showToast = (msg, ms) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), ms || 5000);
+  };
+
+  // Baustellen-Ordner aus dem Index ableiten
+  const FOLDER_FALLBACK = "Ohne Baustelle";
+  const folderName = (b) => (b && b.trim()) ? b.trim() : FOLDER_FALLBACK;
+  const buildFolders = (idx) => {
+    const map = new Map();
+    idx.forEach(it => {
+      const name = folderName(it.bauvorhaben);
+      if (!map.has(name)) map.set(name, []);
+      map.get(name).push(it);
+    });
+    return Array.from(map.entries()).map(([name, list]) => {
+      const sorted = list.slice().sort((a, b) => b.updatedAt - a.updatedAt);
+      return { name, count: list.length, latest: sorted[0] ? sorted[0].datum : "" };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  };
+  const folders = buildFolders(index);
+  const reportsInFolder = (name) => index
+    .filter(it => folderName(it.bauvorhaben) === name)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  const openFolder = (name) => { setCurrentFolder(name); setView("list"); };
+
+  const openReport = async (id) => {
+    try {
+      const rep = await loadReport(id);
+      if (rep) {
+        setCurrent(rep);
+        setView("edit");
+      } else {
+        showToast("Bericht konnte nicht geöffnet werden");
+      }
+    } catch (e) {
+      console.error("openReport failed:", e);
+      showToast("Fehler beim Öffnen – siehe Konsole");
+    }
+  };
+  // Neuer Bericht: optional mit vorausgefülltem Bauvorhaben (aus Ordner)
+  const newReport = (presetBauvorhaben) => {
+    const rep = emptyReport();
+    if (presetBauvorhaben && presetBauvorhaben !== FOLDER_FALLBACK) rep.bauvorhaben = presetBauvorhaben;
+    // Favorit dieses Handys (erster markierter Vorarbeiter) als Bauführer + Vorarbeiter vorbelegen
+    const ich = readFavoriten().find(n => VORARBEITER_LIST.includes(n));
+    if (ich) {
+      rep.bauführer = ich;
+      rep.arbeiter.vorarbeiter = { ...rep.arbeiter.vorarbeiter, namen: ich };
+    }
+    setCurrent(rep);
+    setView("edit");
+  };
+
+  const persist = useCallback(async (rep) => {
+    const toStore = { ...rep, updatedAt: Date.now() };
+    const result = await saveReport(toStore);
+    if (!result || !result.ok) {
+      const err = new Error("save_failed");
+      err.reason = result && result.error;
+      err.detail = result && result.detail;
+      throw err;
+    }
+    const meta = {
+      id: toStore.id,
+      bauvorhaben: toStore.bauvorhaben,
+      datum: toStore.datum,
+      bauführer: toStore.bauführer,
+      updatedAt: toStore.updatedAt,
+      uploaded: !!toStore.uploaded,
+      uploadedAt: toStore.uploadedAt || 0,
+      uploadError: toStore.uploadError || "",
+    };
+    const idx = await loadIndex();
+    const without = idx.filter(i => i.id !== meta.id);
+    const next = [meta, ...without].sort((a, b) => b.updatedAt - a.updatedAt);
+    await saveIndex(next);
+    setIndex(next);
+    return toStore;
+  }, []);
+
+  const handleSave = async () => {
+    try {
+      const saved = await persist(current);
+      setCurrent(saved);
+      setCurrentFolder(folderName(saved.bauvorhaben));
+      showToast("Bericht gespeichert ✓");
+    } catch (e) {
+      console.error("Speicherfehler:", e, "Reason:", e && e.reason, "Detail:", e && e.detail);
+      if (e && e.reason === "quota") {
+        showToast("Speicher voll – bitte fertige Berichte hochladen (gibt Fotospeicher frei) oder alte Berichte löschen", 10000);
+      } else if (e && e.detail) {
+        showToast("Speichern fehlgeschlagen:\n" + String(e.detail).substring(0, 200), 10000);
+      } else {
+        showToast("Speichern fehlgeschlagen – siehe Konsole", 6000);
+      }
+    }
+  };
+  const buildExport = async (saved) => {
+    // Liefert {blob, fileName, mime} oder wirft.
+    return await exportPDF(saved, setProgress);
+  };
+
+  const handleExport = async () => {
+    let saved;
+    try {
+      saved = await persist(current);
+      setCurrent(saved);
+      setCurrentFolder(folderName(saved.bauvorhaben));
+    } catch (e) {
+      console.error(e);
+      showToast(e && e.reason === "quota"
+        ? "Speicher voll – bitte fertige Berichte hochladen oder alte Berichte löschen"
+        : "Speichern fehlgeschlagen:\n" + String((e && e.detail) || "unbekannter Fehler").substring(0, 200), 10000);
+      return;
+    }
+    const hasFotos = Array.isArray(saved.fotos) && saved.fotos.length > 0;
+    try {
+      const out = await buildExport(saved);
+      setProgress(null);
+      downloadBlob(out.blob, out.fileName);
+      showToast(hasFotos ? "ZIP erstellt ✓" : "PDF erstellt ✓", 6000);
+    } catch (e) {
+      console.error(e);
+      setProgress(null);
+      showToast("Export fehlgeschlagen: " + (e && e.message ? e.message.substring(0, 150) : ""), 10000);
+    }
+  };
+
+  // Teilen über das System (iOS-Teilen-Dialog → OneDrive)
+  const handleShare = async () => {
+    let saved;
+    try {
+      saved = await persist(current);
+      setCurrent(saved);
+      setCurrentFolder(folderName(saved.bauvorhaben));
+    } catch (e) {
+      console.error(e);
+      showToast(e && e.reason === "quota"
+        ? "Speicher voll – bitte fertige Berichte hochladen oder alte Berichte löschen"
+        : "Speichern fehlgeschlagen:\n" + String((e && e.detail) || "unbekannter Fehler").substring(0, 200), 10000);
+      return;
+    }
+    // Versand nur mit eingetragenem Bauvorhaben (Bericht ist trotzdem gespeichert)
+    if (!hatBauvorhaben(saved)) {
+      showToast(BAUVORHABEN_PFLICHT_TEXT, 10000);
+      window.dispatchEvent(new CustomEvent("btb-abschnitt", { detail: "allgemein" }));
+      return;
+    }
+    // Versand nur mit gewähltem Techniker/Bauleiter (Bericht ist trotzdem gespeichert)
+    if (!hatTechniker(saved)) {
+      showToast(TECHNIKER_PFLICHT_TEXT, 10000);
+      window.dispatchEvent(new CustomEvent("btb-abschnitt", { detail: "allgemein" }));
+      return;
+    }
+    // Versand nur mit Mannschaft und Stunden je Person (Bericht ist trotzdem gespeichert)
+    const sf = stundenFehler(saved);
+    if (sf) {
+      showToast(sf, 10000);
+      window.dispatchEvent(new CustomEvent("btb-abschnitt", { detail: "mannschaft" }));
+      return;
+    }
+    // Versand nur mit beantworteter Regie-Frage (Bericht ist trotzdem gespeichert)
+    const rf = regieFehler(saved);
+    if (rf) {
+      showToast(rf, 10000);
+      window.dispatchEvent(new CustomEvent("btb-abschnitt", { detail: "regie" }));
+      return;
+    }
+    // Versand nur mit mindestens einem Foto (Bericht ist trotzdem gespeichert)
+    if (!hatFoto(saved)) {
+      showToast(FOTO_PFLICHT_TEXT, 10000);
+      window.dispatchEvent(new CustomEvent("btb-abschnitt", { detail: "fotos" }));
+      return;
+    }
+    let out;
+    try {
+      out = await buildExport(saved);
+    } catch (e) {
+      console.error(e);
+      setProgress(null);
+      showToast("Datei konnte nicht erzeugt werden");
+      return;
+    }
+    // Weg 1: Automatischer Upload an Power Automate (OneDrive)
+    if (UPLOAD_URL) {
+      try {
+        await uploadToCloud(out.blob, out.fileName, setProgress, saved.techniker);
+        setProgress(null);
+        const stamp = Date.now();
+        // Export-Fotos nach erfolgreichem Upload vom Handy freigeben (Speicher)
+        const savedUp = await freeOriginals({ ...saved, uploaded: true, uploadedAt: stamp, uploadedFileName: out.fileName, uploadError: "" });
+        try {
+          await persist(savedUp);
+          setCurrent(savedUp);
+        } catch (e) { console.error("save upload status failed:", e); }
+        showToast("An OneDrive hochgeladen ✓", 6000);
+        return;
+      } catch (e) {
+        console.error("uploadToCloud failed:", e);
+        setProgress(null);
+        const msg = (e && e.message) ? String(e.message) : "unbekannter Fehler";
+        try {
+          const savedErr = { ...saved, uploaded: false, uploadError: msg.substring(0, 300), uploadTriedAt: Date.now() };
+          await persist(savedErr);
+          setCurrent(savedErr);
+        } catch (e2) { console.error("save upload error failed:", e2); }
+        showToast(
+          "Upload fehlgeschlagen:\n" + msg.substring(0, 200) +
+          "\n\n(Tippen zum Schließen)",
+          12000
+        );
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    }
+    // Weg 2 (Fallback): iOS-Teilen-Dialog
+    try {
+      const title = `Bautagesbericht ${saved.bauvorhaben || ""} ${saved.datum || ""}`.trim();
+      const result = await shareBlob(out.blob, out.fileName, title);
+      showToast(result.shared ? "Geteilt ✓" : "Heruntergeladen ✓");
+    } catch (e) {
+      console.error(e);
+      showToast("Teilen fehlgeschlagen – siehe Konsole");
+    }
+  };
+  const handleDelete = async (id) => {
+    await deleteReport(id);
+    const idx = (await loadIndex()).filter(i => i.id !== id);
+    await saveIndex(idx); setIndex(idx);
+    showToast("Bericht gelöscht");
+  };
+
+  // Erneuter Upload eines bestehenden Berichts (aus der Übersicht heraus)
+  const handleRetryUpload = async (id) => {
+    const rep = await loadReport(id);
+    if (!rep) { showToast("Bericht nicht gefunden"); return; }
+    if (!hatBauvorhaben(rep)) { showToast(BAUVORHABEN_PFLICHT_TEXT + " Bericht dazu öffnen.", 10000); return; }
+    if (!hatTechniker(rep)) { showToast(TECHNIKER_PFLICHT_TEXT + " Bericht dazu öffnen.", 10000); return; }
+    { const sf = stundenFehler(rep); if (sf) { showToast(sf + " Bericht dazu öffnen.", 10000); return; } }
+    { const rf = regieFehler(rep); if (rf) { showToast(rf + " Bericht dazu öffnen.", 10000); return; } }
+    if (!hatFoto(rep)) { showToast(FOTO_PFLICHT_TEXT, 10000); return; }
+    let out;
+    try {
+      out = await buildExport(rep);
+    } catch (e) {
+      console.error(e);
+      setProgress(null);
+      showToast("Datei konnte nicht erzeugt werden");
+      return;
+    }
+    if (!UPLOAD_URL) { setProgress(null); showToast("Keine Upload-URL hinterlegt"); return; }
+    try {
+      await uploadToCloud(out.blob, out.fileName, setProgress, rep.techniker);
+      setProgress(null);
+      const stamp = Date.now();
+      const savedUp = await freeOriginals({ ...rep, uploaded: true, uploadedAt: stamp, uploadedFileName: out.fileName, uploadError: "" });
+      await persist(savedUp);
+      showToast("An OneDrive hochgeladen ✓", 6000);
+    } catch (e) {
+      console.error("retry uploadToCloud failed:", e);
+      setProgress(null);
+      const msg = (e && e.message) ? String(e.message) : "unbekannter Fehler";
+      try {
+        const savedErr = { ...rep, uploaded: false, uploadError: msg.substring(0, 300), uploadTriedAt: Date.now() };
+        await persist(savedErr);
+      } catch (e2) { console.error(e2); }
+      showToast("Upload fehlgeschlagen:\n" + msg.substring(0, 200) + "\n\n(Tippen zum Schließen)", 12000);
+    }
+  };
+  const handleDuplicate = async (id) => {
+    const rep = await loadReport(id);
+    if (!rep) return;
+    const copy = {
+      ...rep,
+      id: "rep_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+      datum: new Date().toISOString().slice(0, 10),
+      signature: null,      // Unterschrift nicht übernehmen
+      bueroKorrektur: false,
+      uploaded: false, uploadedAt: 0, uploadError: "",
+      updatedAt: Date.now(),
+    };
+    const saved = await persist(copy);
+    setCurrent(saved);
+    setView("edit");
+    showToast("Als Vorlage dupliziert ✓");
+  };
+  // Exportierte ZIP/PDF (z. B. aus SharePoint) wieder einlesen und bearbeiten
+  const handleImport = async (file) => {
+    if (!file) return;
+    let rep;
+    try {
+      setProgress({ step: "Bericht wird eingelesen…", percent: 30 });
+      rep = await importReportFile(file);
+    } catch (e) {
+      console.error("import failed:", e);
+      setProgress(null);
+      showToast("Import fehlgeschlagen:\n" + (e && e.message ? e.message : "unbekannter Fehler") + "\n\n(Tippen zum Schließen)", 12000);
+      return;
+    }
+    setProgress(null);
+    if (index.some(i => i.id === rep.id) &&
+        !window.confirm("Dieser Bericht ist auf diesem Gerät schon vorhanden.\nMit der importierten Datei überschreiben?")) {
+      return;
+    }
+    try {
+      await persist(rep);
+      const loaded = await loadReport(rep.id);
+      setCurrent(loaded || rep);
+      setCurrentFolder(folderName(rep.bauvorhaben));
+      setView("edit");
+      showToast("Bericht importiert ✓\nExport erfolgt als „…_korrigiert“", 7000);
+    } catch (e) {
+      console.error(e);
+      showToast(e && e.reason === "quota"
+        ? "Speicher voll – Bericht konnte nicht importiert werden"
+        : "Import: Speichern fehlgeschlagen", 10000);
+    }
+  };
+  const handleDeleteFolder = async (name) => {
+    const toDelete = index.filter(it => folderName(it.bauvorhaben) === name);
+    for (const it of toDelete) { await deleteReport(it.id); }
+    const idx = (await loadIndex()).filter(it => folderName(it.bauvorhaben) !== name);
+    await saveIndex(idx); setIndex(idx);
+    showToast("Baustelle gelöscht");
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(180deg,#fbfbf4 0%,#f3f4ea 100%)", fontFamily: "'Source Sans 3', system-ui, sans-serif", color: INK }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Source+Sans+3:wght@400;600;700&display=swap');
+        * { -webkit-tap-highlight-color: transparent; }
+        input:focus, textarea:focus { outline: none; border-color:${GREEN} !important; box-shadow:0 0 0 3px rgba(91,168,58,.18); }
+        button:active { transform: scale(.97); }
+
+        /* ============================================================
+           Smartphone-Optimierung (unter 768 px, also Handys im Hochformat)
+           Tablet-Ansicht bleibt vollständig unverändert.
+           ============================================================ */
+        @media (max-width: 768px) {
+          /* Grundlegend etwas größere Basis-Schrift auf Handys */
+          body { font-size: 16px; }
+
+          /* Alle Eingabefelder größer + minimale Antipp-Höhe für den Daumen */
+          input, select, textarea {
+            font-size: 16px !important;      /* verhindert Auto-Zoom auf iOS */
+            min-height: 44px !important;     /* Apple-Standard für Touch */
+            padding: 12px 14px !important;
+          }
+          /* Ausnahme: Stunden- und Mengen-Felder bleiben kompakt (sonst zu breit) */
+          input[inputmode="decimal"], input[inputmode="numeric"] {
+            padding: 10px 8px !important;
+            font-size: 17px !important;      /* etwas größer, sind ja Zahlen */
+          }
+
+          /* Alle Buttons komfortabel groß */
+          button {
+            min-height: 44px;
+            font-size: 15px !important;
+          }
+
+          /* Überschriften nicht zu klein werden lassen */
+          h1 { font-size: 26px !important; }
+          h2 { font-size: 20px !important; }
+
+          /* Feld-Beschriftungen (Labels) etwas kräftiger */
+          label { font-size: 14px !important; font-weight: 700 !important; }
+
+          /* Kategorie-Karten (Vorarbeiter/Facharbeiter/Lehrlinge) etwas mehr Luft */
+          .arbeiter-karte { padding: 16px !important; }
+          .arbeiter-karte-name { font-size: 16px !important; font-weight: 600 !important; }
+
+          /* Material-, Fahrzeug-, Regie-Zeilen: nicht mehr in eine Reihe quetschen */
+          .listrow {
+            gap: 10px !important;
+          }
+          .listrow > input, .listrow > select {
+            flex: 1 1 100% !important;       /* auf Handy stapeln */
+            min-width: 0 !important;
+          }
+          .listrow > .listrow-menge {
+            flex: 1 1 45% !important;
+            min-width: 100px !important;
+          }
+          .listrow > .listrow-einheit {
+            flex: 1 1 45% !important;
+            min-width: 110px !important;
+          }
+          .listrow > .listrow-remove {
+            flex: 0 0 auto !important;
+          }
+
+          /* Auswahl-Pillen (Namen) mit mehr Luft zum Antippen */
+          .pill { font-size: 15px !important; padding: 8px 12px 8px 14px !important; }
+          .pill button { min-height: 28px !important; }
+
+          /* Padding an den Rändern des Editors reduzieren, damit mehr Inhalt sichtbar ist */
+          .edit-page { padding: 12px 12px 140px !important; }
+
+          /* Top-Bar (Speichern/OneDrive/PDF): Knöpfe komfortabel und immer sichtbar */
+          .topbar button { font-size: 14px !important; padding: 10px 14px !important; }
+        }
+
+        /* Sehr kleine Handys (unter 380 px, alte iPhones SE etc.): noch einen Tick kompakter */
+        @media (max-width: 380px) {
+          h1 { font-size: 22px !important; }
+          .topbar { gap: 6px !important; padding: 8px 10px !important; }
+          .topbar button { font-size: 13px !important; padding: 9px 10px !important; }
+        }
+      `}</style>
+
+      {loading ? (
+        <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", color: "#9a9b89" }}>Lädt…</div>
+      ) : view === "folders" ? (
+        <FolderList folders={folders} onOpenFolder={openFolder} onNew={() => newReport()} onDeleteFolder={handleDeleteFolder} onOpenAll={() => setView("all")} onImport={handleImport} />
+      ) : view === "all" ? (
+        <AllReports items={index} onOpen={openReport} onDelete={handleDelete} onBack={() => setView("folders")} onRetry={handleRetryUpload} />
+      ) : view === "list" ? (
+        <ReportList folderName={currentFolder} items={reportsInFolder(currentFolder)} onOpen={openReport} onNew={newReport} onDelete={handleDelete} onDuplicate={handleDuplicate} onBack={() => setView("folders")} />
+      ) : (
+        <Editor report={current} onChange={setCurrent} onBack={() => setView(currentFolder ? "list" : "folders")} onSave={handleSave} onExport={handleExport} onShare={handleShare} existingFolders={folders.map(f => f.name).filter(n => n !== FOLDER_FALLBACK)} />
+      )}
+
+      <ProgressOverlay progress={progress} />
+
+      {toast && (
+        <div
+          onClick={() => setToast("")}
+          style={{
+            position: "fixed", bottom: 120, left: "50%", transform: "translateX(-50%)",
+            maxWidth: "92vw",
+            background: INK, color: "#fff",
+            padding: "14px 22px", borderRadius: 16,
+            fontSize: 15, fontWeight: 600, lineHeight: 1.35,
+            boxShadow: "0 6px 20px rgba(0,0,0,.25)", zIndex: 50,
+            cursor: "pointer", whiteSpace: "pre-wrap", wordBreak: "break-word",
+          }}
+          title="Tippen zum Schließen">
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
