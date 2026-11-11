@@ -1526,6 +1526,8 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
     !hatFoto(r) && ["fotos", "Fotos"],
     rFehler && ["regie", "Regiearbeiten"],
   ].filter(Boolean);
+  const PFLICHT_GESAMT = 5; // Anzahl der Prüfungen in „fehlt“
+  const [fehltAuf, setFehltAuf] = useState(false);
 
   const arbRows = [
     ["vorarbeiter",  "Vorarbeiter",   VORARBEITER_LIST,  "multi", null],
@@ -1534,7 +1536,7 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
   ];
 
   return (
-    <div className="edit-page" style={{ paddingBottom: 140 }}>
+    <div className="edit-page" style={{ paddingBottom: 90 }}>
       {/* top bar */}
       <div className="topbar" style={{ position: "sticky", top: 0, zIndex: 10, background: "#fbfbf4", borderBottom: "2px solid #e3e3d4", padding: "12px 16px", display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
         <button onClick={onBack} style={btnGhost}><ChevronLeft size={20} /> Zurück</button>
@@ -1749,22 +1751,34 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
         </Abschnitt>
       </div>
 
-      {/* Leiste unten: was fehlt noch + Senden */}
-      <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 20, background: "#fbfbf4", borderTop: "2px solid #e3e3d4", padding: "10px 14px calc(10px + env(safe-area-inset-bottom))" }}>
-        <div style={{ maxWidth: 860, margin: "0 auto", display: "flex", alignItems: "center", gap: 10 }}>
+      {/* Leiste unten: schlanke Zeile „X offen“ + Senden; Liste klappt nur bei Antippen auf */}
+      <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 20, background: "#fbfbf4", borderTop: "2px solid #e3e3d4" }}>
+        {fehltAuf && fehlt.length > 0 && (
+          <div style={{ maxWidth: 860, margin: "0 auto", padding: "10px 14px 4px" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#8a5a00", marginBottom: 2 }}>Noch offen</div>
+            {fehlt.map(([key, label], i) => {
+              const abschnitt = key.split("-")[0];
+              return (
+                <button key={key} type="button" onClick={() => { setFehltAuf(false); oeffne(abschnitt); }}
+                  style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px 2px", background: "none", border: "none", borderTop: i ? "1px solid #e3e3d4" : "none", color: INK, fontSize: 16, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+                  <span style={{ width: 24, height: 24, borderRadius: 999, border: "2px solid " + REGIE_ORANGE, background: "#fff1dc", color: "#8a5a00", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{ABSCHNITTE.indexOf(abschnitt) + 1}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>{label}</span>
+                  <ChevronRight size={18} color="#6b6c5c" />
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div style={{ height: 4, background: "#e3e3d4" }}>
+          <div style={{ height: 4, width: Math.round(((PFLICHT_GESAMT - fehlt.length) / PFLICHT_GESAMT) * 100) + "%", background: fehlt.length ? REGIE_ORANGE : DARKGREEN, transition: "width .25s" }} />
+        </div>
+        <div style={{ maxWidth: 860, margin: "0 auto", display: "flex", alignItems: "center", gap: 10, padding: "8px 14px calc(8px + env(safe-area-inset-bottom))" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             {fehlt.length ? (
-              <>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#8a5a00", marginBottom: 4 }}>Noch offen:</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {fehlt.map(([key, label]) => (
-                    <button key={key} type="button" onClick={() => oeffne(key.split("-")[0])}
-                      style={{ padding: "6px 10px", borderRadius: 999, border: "2px solid " + REGIE_ORANGE, background: "#fff1dc", color: "#8a5a00", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </>
+              <button type="button" onClick={() => setFehltAuf(v => !v)} aria-expanded={fehltAuf}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "10px 12px", borderRadius: 999, border: "2px solid " + REGIE_ORANGE, background: "#fff1dc", color: "#8a5a00", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                {fehlt.length} offen {fehltAuf ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+              </button>
             ) : (
               <div style={{ fontSize: 14, fontWeight: 700, color: DARKGREEN, display: "flex", alignItems: "center", gap: 6 }}>
                 <Check size={18} /> Bereit zum Senden
@@ -1772,7 +1786,7 @@ function Editor({ report, onChange, onBack, onSave, onExport, onShare, existingF
             )}
           </div>
           <button onClick={onShare} title="Bericht an OneDrive senden"
-            style={{ ...btnGhost, background: fehlt.length ? "#9fb7cf" : "#0078d4", color: "#fff", borderColor: fehlt.length ? "#9fb7cf" : "#0078d4", padding: "14px 18px", fontSize: 16, flexShrink: 0 }}>
+            style={{ ...btnGhost, background: fehlt.length ? "#9fb7cf" : "#0078d4", color: "#fff", borderColor: fehlt.length ? "#9fb7cf" : "#0078d4", padding: "12px 18px", fontSize: 16, flexShrink: 0 }}>
             <Send size={18} /> Senden
           </button>
         </div>
